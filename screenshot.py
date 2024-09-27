@@ -69,6 +69,11 @@ def start_macro():
         messagebox.showerror("오류", "유효한 지연 시간을 입력해주세요.")
         return
 
+    # output.pdf 파일 존재 여부 확인 추가
+    if os.path.exists("output.pdf"):
+        messagebox.showerror("오류", "output.pdf 파일이 이미 존재합니다. 파일을 삭제하거나 이름을 변경한 후 다시 시도하세요.")
+        return
+
     # 영역 계산
     x1, y1 = top_left
     x2, y2 = bottom_right
@@ -150,7 +155,7 @@ root.update_idletasks()
 width = root.winfo_width()
 height = root.winfo_height()
 x = (root.winfo_screenwidth() // 2) - (width // 2)
-y = (root.winfo_screenheight() // 2) - (height // 2)
+y = (root.winfo_screenheight() // 2)
 root.geometry(f"{width}x{height}+{x}+{y}")
 
 # 창을 항상 위로 설정
