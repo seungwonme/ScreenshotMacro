@@ -47,6 +47,14 @@ def take_screenshot(file_path, x, y, width, height):
     command = ['screencapture', '-x', '-R{},{},{},{}'.format(x, y, width, height), file_path]
     subprocess.run(command)
 
+def get_next_pdf_filename():
+    index = 1
+    while True:
+        pdf_filename = f"{index}.pdf"
+        if not os.path.exists(pdf_filename):
+            return pdf_filename
+        index += 1
+
 def start_macro():
     global stop_event
     if top_left is None or bottom_right is None:
@@ -67,11 +75,6 @@ def start_macro():
             raise ValueError
     except ValueError:
         messagebox.showerror("오류", "유효한 지연 시간을 입력해주세요.")
-        return
-
-    # output.pdf 파일 존재 여부 확인 추가
-    if os.path.exists("output.pdf"):
-        messagebox.showerror("오류", "output.pdf 파일이 이미 존재합니다. 파일을 삭제하거나 이름을 변경한 후 다시 시도하세요.")
         return
 
     # 영역 계산
@@ -95,6 +98,10 @@ def start_macro():
 def run_macro(repetitions, region, delay, stop_event):
     images = []
     x, y, width, height = region
+
+    # 새로운 PDF 파일 이름 생성
+    pdf_filename = get_next_pdf_filename()
+
     for count in range(1, repetitions + 1):
         if stop_event.is_set():
             print("매크로가 중단되었습니다.")
@@ -122,7 +129,6 @@ def run_macro(repetitions, region, delay, stop_event):
 
     # 캡처한 이미지가 있을 경우 PDF로 저장
     if images:
-        pdf_filename = "output.pdf"
         images[0].save(pdf_filename, save_all=True, append_images=images[1:])
         print(f"PDF 파일 {pdf_filename} 저장 완료.")
 
@@ -134,7 +140,7 @@ def run_macro(repetitions, region, delay, stop_event):
     if stop_event.is_set():
         messagebox.showinfo("취소", "매크로 실행이 취소되었습니다.")
     else:
-        messagebox.showinfo("완료", "매크로 실행이 완료되었습니다.")
+        messagebox.showinfo("완료", f"매크로 실행이 완료되었습니다. 결과 파일: {pdf_filename}")
 
 def cancel_macro():
     stop_event.set()
