@@ -13,6 +13,11 @@ top_left = None
 bottom_right = None
 stop_event = threading.Event()  # 매크로 중단을 위한 이벤트 객체
 
+# 스크린샷 폴더 생성
+if not os.path.exists("screenshot"):
+    os.makedirs("screenshot")
+
+
 def set_top_left():
     root.withdraw()  # GUI 창 숨기기
 
@@ -27,6 +32,7 @@ def set_top_left():
 
     listener = mouse.Listener(on_click=on_click)
     listener.start()
+
 
 def set_bottom_right():
     root.withdraw()
@@ -43,9 +49,11 @@ def set_bottom_right():
     listener = mouse.Listener(on_click=on_click)
     listener.start()
 
+
 def take_screenshot(file_path, x, y, width, height):
-    command = ['screencapture', '-x', '-R{},{},{},{}'.format(x, y, width, height), file_path]
+    command = ["screencapture", "-x", "-R{},{},{},{}".format(x, y, width, height), file_path]
     subprocess.run(command)
+
 
 def get_next_pdf_filename():
     index = 1
@@ -54,6 +62,7 @@ def get_next_pdf_filename():
         if not os.path.exists(pdf_filename):
             return pdf_filename
         index += 1
+
 
 def start_macro():
     global stop_event
@@ -95,6 +104,7 @@ def start_macro():
     # 매크로 실행 스레드 시작
     threading.Thread(target=run_macro, args=(repetitions, region, delay, stop_event)).start()
 
+
 def run_macro(repetitions, region, delay, stop_event):
     images = []
     x, y, width, height = region
@@ -115,12 +125,12 @@ def run_macro(repetitions, region, delay, stop_event):
             break
 
         # 스크린샷 캡처
-        filename = f"screenshot_{count}.png"
+        filename = f"screenshot/screenshot_{count}.png"
         take_screenshot(filename, x, y, width, height)
         print(f"스크린샷 {filename} 저장 완료.")
 
         # 이미지 로드 및 리스트에 추가
-        image = Image.open(filename).convert('RGB')
+        image = Image.open(filename).convert("RGB")
         images.append(image)
 
         # 오른쪽 방향키 누르기
@@ -134,7 +144,7 @@ def run_macro(repetitions, region, delay, stop_event):
 
         # 개별 이미지 파일 삭제
         for count in range(1, len(images) + 1):
-            os.remove(f"screenshot_{count}.png")
+            os.remove(f"screenshot/screenshot_{count}.png")
         print("개별 스크린샷 파일 삭제 완료.")
 
     if stop_event.is_set():
@@ -142,12 +152,15 @@ def run_macro(repetitions, region, delay, stop_event):
     else:
         messagebox.showinfo("완료", f"매크로 실행이 완료되었습니다. 결과 파일: {pdf_filename}")
 
+
 def cancel_macro():
     stop_event.set()
     print("매크로 중단 요청됨.")
 
+
 def on_esc_press(event):
     root.destroy()
+
 
 # GUI 구성
 root = tk.Tk()
@@ -161,14 +174,14 @@ root.update_idletasks()
 width = root.winfo_width()
 height = root.winfo_height()
 x = (root.winfo_screenwidth() // 2) - (width // 2)
-y = (root.winfo_screenheight() // 2)
+y = root.winfo_screenheight() // 2
 root.geometry(f"{width}x{height}+{x}+{y}")
 
 # 창을 항상 위로 설정
-root.attributes('-topmost', True)
+root.attributes("-topmost", True)
 
 # Esc 키에 종료 기능 바인딩
-root.bind('<Escape>', on_esc_press)
+root.bind("<Escape>", on_esc_press)
 
 lbl_top_left = tk.Label(root, text="좌측 상단: 설정되지 않음")
 lbl_top_left.pack(pady=5)
