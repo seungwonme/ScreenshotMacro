@@ -1,6 +1,14 @@
 from PIL import Image
 import os
 
+def get_next_pdf_filename():
+    index = 1
+    while True:
+        pdf_filename = f"{index}.pdf"
+        if not os.path.exists(pdf_filename):
+            return pdf_filename
+        index += 1
+
 
 def convert_images_to_pdf():
     image_folder = "screenshot"
@@ -15,9 +23,15 @@ def convert_images_to_pdf():
 
     # 이미지가 존재할 경우 PDF로 변환
     if images:
-        output_pdf = "output.pdf"
+        output_pdf = get_next_pdf_filename()
         images[0].save(output_pdf, save_all=True, append_images=images[1:])
-        print(f"PDF 파일 {output_pdf} 생성 완료.")
+        print(f"{output_pdf} 생성 완료.")
+
+        # 모든 이미지 파일 삭제
+        for file_name in os.listdir(image_folder):
+            if file_name.endswith(".png"):
+                os.remove(os.path.join(image_folder, file_name))
+        print("모든 스크린샷 파일 삭제 완료.")
 
 
 if __name__ == "__main__":

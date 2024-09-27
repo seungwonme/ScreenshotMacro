@@ -140,7 +140,7 @@ def run_macro(repetitions, region, delay, stop_event):
     # 캡처한 이미지가 있을 경우 PDF로 저장
     if images:
         images[0].save(pdf_filename, save_all=True, append_images=images[1:])
-        print(f"PDF 파일 {pdf_filename} 저장 완료.")
+        print(f"{pdf_filename} 생성 완료.")
 
         # 개별 이미지 파일 삭제
         for count in range(1, len(images) + 1):
