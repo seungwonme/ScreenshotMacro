@@ -70,14 +70,14 @@ After installation, you can run the application using the `screenshot-macro` com
 screenshot-macro <mode>
 ```
 
-Where `<mode>` is one of `macro`, `view`, or `clean`.
+Where `<mode>` is one of `run`, `view`, or `clean`.
 
 ### Option 1: Macro Mode
 
 Automates screenshot capturing and keyboard inputs.
 
 ```bash
-screenshot-macro macro
+screenshot-macro run
 ```
 
 1. **Set the Screenshot Area**:

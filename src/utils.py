@@ -56,16 +56,13 @@ def set_bottom_right(root, lbl_bottom_right):
 
 def clean_screenshots():
     """스크린샷 디렉토리의 모든 PNG 파일을 삭제합니다."""
-    folder = "screenshots"
-    if not os.path.exists(folder):
-        print("Screenshots directory does not exist.")
-        return
-    deleted_files = 0
-    for file_name in os.listdir(folder):
-        if file_name.endswith(".png"):
-            os.remove(os.path.join(folder, file_name))
-            deleted_files += 1
-    print(f"Deleted {deleted_files} screenshot(s).")
+    script_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'scripts', 'clean.sh')
+    print(script_path)
+    result = subprocess.run([script_path], capture_output=True, text=True)
+    if result.returncode == 0:
+        print("Screenshots cleaned successfully.")
+    else:
+        print(f"Failed to clean screenshots. Error: {result.stderr}")
 
 
 def convert_images_to_pdf():

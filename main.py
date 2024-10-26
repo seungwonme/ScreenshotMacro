@@ -8,11 +8,11 @@ from src.utils import clean_screenshots
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Choose the mode of operation: macro, view, or clean.")
+    parser = argparse.ArgumentParser(description="Choose the mode of operation: run, view, or clean.")
     parser.add_argument(
         "mode",
-        choices=["macro", "view", "clean"],
-        help="Mode of operation: 'macro' for automation, 'view' for screenshot viewing, 'clean' to delete all screenshots.",
+        choices=["run", "view", "clean"],
+        help="Mode of operation: 'run' for automation, 'view' for screenshot viewing, 'clean' to delete all screenshots.",
     )
     args = parser.parse_args()
 
@@ -26,7 +26,7 @@ def main():
 
     setup_common_gui(root)
 
-    if args.mode == "macro":
+    if args.mode == "run":
         ScreenshotMacro(root).setup()
     elif args.mode == "view":
         ScreenshotView(root).setup()

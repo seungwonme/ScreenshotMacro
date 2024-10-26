@@ -3,7 +3,7 @@ from dataclasses import dataclass
 
 @dataclass
 class GuiConfig:
-    WINDOW_SIZE: str = "800x400"
+    WINDOW_SIZE: str = "800x400+880+0"
     DEFAULT_REPETITIONS: int = 300
     DEFAULT_DELAY_MIN: float = 1.0
     DEFAULT_DELAY_MAX: float = 3.0
