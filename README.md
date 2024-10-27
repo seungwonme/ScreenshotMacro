@@ -9,7 +9,7 @@ This repository contains Python scripts that automate the process of taking scre
 - [Installation](#installation)
 - [Usage](#usage)
   - [Option 1: Macro Mode](#option-1-macro-mode)
-  - [Option 2: View Mode](#option-2-view-mode)
+  - [Option 2: Self Mode](#option-2-self-mode)
   - [Option 3: Clean Mode](#option-3-clean-mode)
 - [Project Structure](#project-structure)
 - [Notes](#notes)
@@ -19,7 +19,7 @@ This repository contains Python scripts that automate the process of taking scre
 ## Features
 
 - **Macro Mode**: Automatically captures screenshots of a specified area multiple times with customizable delays and automates right arrow key presses.
-- **View Mode**: Captures a screenshot every time the right arrow key is pressed. Key listening can be started and stopped via the GUI.
+- **Self Mode**: Captures a screenshot every time the right arrow key is pressed. Key listening can be started and stopped via the GUI.
 - **Clean Mode**: Deletes all screenshots stored in the `screenshots` folder.
 - **PDF Conversion**: Combines captured screenshots into a single PDF file.
 
@@ -70,7 +70,7 @@ After installation, you can run the application using the `screenshot-macro` com
 screenshot-macro <mode>
 ```
 
-Where `<mode>` is one of `run`, `view`, or `clean`.
+Where `<mode>` is one of `run`, `self`, or `clean`.
 
 ### Option 1: Macro Mode
 
@@ -99,12 +99,12 @@ screenshot-macro run
 4. **Cancel the Macro**:
    - Click **"Cancel Macro"** to stop the macro at any time.
 
-### Option 2: View Mode
+### Option 2: Self Mode
 
 Captures a screenshot each time the right arrow key is pressed.
 
 ```bash
-screenshot-macro view
+screenshot-macro self
 ```
 
 1. **Set the Screenshot Area**:
@@ -153,7 +153,7 @@ ScreenshotMacro/
     ├── gui_setup.py         # Common GUI setup module
     ├── macro.py             # Macro mode class
     ├── utils.py             # Utility functions
-    └── view.py              # View mode class
+    └── self.py              # Self mode class
 ```
 
 ## Notes
