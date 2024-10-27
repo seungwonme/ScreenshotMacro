@@ -6,11 +6,12 @@ import time
 from src.utils import take_screenshot, convert_images_to_pdf, get_next_count
 
 
-class ScreenshotView:
+class ScreenshotSelf:
     def __init__(self, root):
         self.root = root
         self.screenshot_directory = Paths.SCREENSHOTS_DIR
         self.listener = None  # To store the key listener handler
+        self.count = get_next_count(self.screenshot_directory, "screenshot", "png")
 
     def setup(self):
         self.setup_gui()
@@ -43,6 +44,7 @@ class ScreenshotView:
         if self.listener is None:
             # Start the key listener and store the handler
             self.listener = keyboard.on_press_key("right", self.on_right_arrow_press)
+
             print("Started listening for the right arrow key.")
         else:
             print("Key listener is already running.")
@@ -55,6 +57,7 @@ class ScreenshotView:
             print("Stopped listening for the right arrow key.")
         else:
             print("Key listener is not running.")
+        self.count = get_next_count(self.screenshot_directory, "screenshot", "png")
 
     def on_right_arrow_press(self, event):
         time.sleep(float(self.entry_delay.get()))
@@ -73,9 +76,7 @@ class ScreenshotView:
         if not os.path.exists(self.screenshot_directory):
             os.makedirs(self.screenshot_directory)
 
-        filename = os.path.join(
-            self.screenshot_directory,
-            f"screenshot_{get_next_count(self.screenshot_directory, 'screenshot', 'png')}.png",
-        )
+        filename = self.screenshot_directory + f"/screenshot_{self.count}.png"
         take_screenshot(filename, x, y, width, height)
         print(f"Screenshot saved as {filename}")
+        self.count += 1

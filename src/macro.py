@@ -104,6 +104,8 @@ class ScreenshotMacro:
 
         time.sleep(5)
 
+        count = get_next_count(self.screenshot_directory, "screenshot", "png")
+
         for _ in range(repetitions):
             if self.stop_event.is_set():
                 break
@@ -120,10 +122,7 @@ class ScreenshotMacro:
             if not os.path.exists(self.screenshot_directory):
                 os.makedirs(self.screenshot_directory)
 
-            filename = os.path.join(
-                self.screenshot_directory,
-                f"screenshot_{get_next_count(self.screenshot_directory, 'screenshot', 'png')}.png",
-            )
+            filename = self.screenshot_directory + f"/screenshot_{count}.png"
             take_screenshot(filename, x, y, width, height)
             print(f"Screenshot saved as {filename}")
 
