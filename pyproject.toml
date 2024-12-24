@@ -1,0 +1,18 @@
+[tool.poetry]
+name = "screenshotmacro"
+version = "0.1.0"
+description = ""
+authors = ["seungwonme <seungwonan.me@gmail.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.12"
+pyautogui = "^0.9.54"
+pillow = "^11.0.0"
+pynput = "^1.7.7"
+keyboard = "^0.13.5"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

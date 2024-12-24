@@ -127,6 +127,7 @@ class ScreenshotMacro:
             print(f"Screenshot saved as {filename}")
 
             pyautogui.press("right")
+            count += 1
 
         # Schedule GUI updates in the main thread
         self.root.after(0, self.macro_finished)
