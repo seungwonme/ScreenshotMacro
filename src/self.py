@@ -27,25 +27,31 @@ class ScreenshotSelf:
 
         self.button_frame = tk.Frame(self.root)
         # Start Key Listener Button
-        btn_start_key_listener = tk.Button(self.button_frame, text="Start Listener", command=self.start_key_listener)
+        btn_start_key_listener = tk.Button(
+            self.button_frame, text="Start Listener", command=self.start_key_listener
+        )
         btn_start_key_listener.pack(side=tk.LEFT, pady=10)
 
         # Stop Key Listener Button
-        btn_stop_key_listener = tk.Button(self.button_frame, text="Stop Listener", command=self.stop_key_listener)
+        btn_stop_key_listener = tk.Button(
+            self.button_frame, text="Stop Listener", command=self.stop_key_listener
+        )
         btn_stop_key_listener.pack(side=tk.LEFT, pady=10)
 
         self.button_frame.pack(pady=10)
 
         # Convert to PDF Button
-        btn_convert_to_pdf = tk.Button(self.root, text="Convert to PDF", command=convert_images_to_pdf)
+        btn_convert_to_pdf = tk.Button(
+            self.root, text="Convert to PDF", command=convert_images_to_pdf
+        )
         btn_convert_to_pdf.pack(pady=10)
 
     def start_key_listener(self):
         if self.listener is None:
             # Start the key listener and store the handler
-            self.listener = keyboard.on_press_key("down", self.on_down_arrow_press)
+            self.listener = keyboard.on_press_key("left", self.on_left_arrow_press)
 
-            print("Started listening for the down arrow key.")
+            print("Started listening for the left arrow key.")
         else:
             print("Key listener is already running.")
 
@@ -54,12 +60,12 @@ class ScreenshotSelf:
             # Unhook the key listener
             keyboard.unhook(self.listener)
             self.listener = None
-            print("Stopped listening for the down arrow key.")
+            print("Stopped listening for the left arrow key.")
         else:
             print("Key listener is not running.")
         self.count = get_next_count(self.screenshot_directory, "screenshot", "png")
 
-    def on_down_arrow_press(self, event):
+    def on_left_arrow_press(self, event):
         time.sleep(float(self.entry_delay.get()))
         self.take_screenshot()
         keyboard.press_and_release("enter")

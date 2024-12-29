@@ -165,3 +165,5 @@ PyScreeze==1.0.1
 pytweening==1.2.0
 rubicon-objc==0.4.9
 six==1.16.0
+Pillow
+ImageHash

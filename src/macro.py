@@ -50,7 +50,9 @@ class ScreenshotMacro:
         btn_frame = tk.Frame(self.root)
         btn_frame.pack(pady=5)
 
-        self.btn_start = tk.Button(btn_frame, text="Start Macro", command=self.start_macro, width=10, height=2)
+        self.btn_start = tk.Button(
+            btn_frame, text="Start Macro", command=self.start_macro, width=10, height=2
+        )
         self.btn_start.pack(side=tk.LEFT, pady=10, padx=5)
         self.btn_cancel = tk.Button(
             btn_frame,
@@ -100,7 +102,9 @@ class ScreenshotMacro:
             daemon=True,
         ).start()
 
-    def run_macro(self, repetitions, delay_min, delay_max, random_delay, x, y, width, height):
+    def run_macro(
+        self, repetitions, delay_min, delay_max, random_delay, x, y, width, height
+    ):
 
         time.sleep(5)
 
@@ -126,7 +130,14 @@ class ScreenshotMacro:
             take_screenshot(filename, x, y, width, height)
             print(f"Screenshot saved as {filename}")
 
-            pyautogui.press("right")
+            # pyautogui.press("right")
+            pyautogui.scroll(-10)
+            # if random.random() < 0.5:
+            #     pyautogui.press("right")
+            # else:
+            #     pyautogui.press("down")
+            # pyautogui.move(100, 100)
+            # pyautogui.move(-100, -100)
             count += 1
 
         # Schedule GUI updates in the main thread
