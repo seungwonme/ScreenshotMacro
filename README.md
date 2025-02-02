@@ -162,3 +162,5 @@ ScreenshotMacro/
 - **Screenshots Folder**: By default, screenshots are saved in the `screenshots` directory within the project.
 - **PDF Output**: The combined PDF is saved in the project directory, with a filename like `1.pdf`.
 - **Permissions**: You may need to grant screen recording permissions to the Python interpreter in your Mac's System Preferences under Security & Privacy.
+
+Accessibility Keyboard

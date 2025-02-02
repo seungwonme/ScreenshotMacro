@@ -13,6 +13,7 @@ class ScreenshotMacro:
         self.root = root
         self.stop_event = threading.Event()
         self.screenshot_directory = Paths.SCREENSHOTS_DIR
+        self.count = 1
 
     def setup(self):
         self.setup_gui()
@@ -102,13 +103,31 @@ class ScreenshotMacro:
             daemon=True,
         ).start()
 
+    def action(self):
+        pyautogui.click()
+        # if random.random() < 0.15:
+        #     pyautogui.press("up")
+        #     time.sleep(random.random())
+        #     pyautogui.press("down")
+        #     time.sleep(random.random())
+
+        # pyautogui.press("down")
+
+        # if random.random() < 0.1:
+        #     pyautogui.scroll(random.randint(-10, 10))
+
+        # if random.random() < 0.1:
+        #     for _ in range(random.randint(1, 5)):
+        #         pyautogui.move(2, 2)
+        #         pyautogui.move(-2, -2)
+
     def run_macro(
         self, repetitions, delay_min, delay_max, random_delay, x, y, width, height
     ):
 
         time.sleep(5)
 
-        count = get_next_count(self.screenshot_directory, "screenshot", "png")
+        self.count = get_next_count(self.screenshot_directory, "screenshot", "png")
 
         for _ in range(repetitions):
             if self.stop_event.is_set():
@@ -126,19 +145,12 @@ class ScreenshotMacro:
             if not os.path.exists(self.screenshot_directory):
                 os.makedirs(self.screenshot_directory)
 
-            filename = self.screenshot_directory + f"/screenshot_{count}.png"
+            filename = self.screenshot_directory + f"/screenshot_{self.count}.png"
             take_screenshot(filename, x, y, width, height)
             print(f"Screenshot saved as {filename}")
 
-            # pyautogui.press("right")
-            pyautogui.scroll(-10)
-            # if random.random() < 0.5:
-            #     pyautogui.press("right")
-            # else:
-            #     pyautogui.press("down")
-            # pyautogui.move(100, 100)
-            # pyautogui.move(-100, -100)
-            count += 1
+            self.action()
+            self.count += 1
 
         # Schedule GUI updates in the main thread
         self.root.after(0, self.macro_finished)

@@ -47,11 +47,11 @@ class ScreenshotSelf:
         btn_convert_to_pdf.pack(pady=10)
 
     def start_key_listener(self):
+        self.count = get_next_count(self.screenshot_directory, "screenshot", "png")
         if self.listener is None:
             # Start the key listener and store the handler
-            self.listener = keyboard.on_press_key("left", self.on_left_arrow_press)
-
-            print("Started listening for the left arrow key.")
+            self.listener = keyboard.on_press_key("down", self.on_down_arrow_press)
+            print("Started listening for the down arrow key.")
         else:
             print("Key listener is already running.")
 
@@ -60,12 +60,11 @@ class ScreenshotSelf:
             # Unhook the key listener
             keyboard.unhook(self.listener)
             self.listener = None
-            print("Stopped listening for the left arrow key.")
+            print("Stopped listening for the down arrow key.")
         else:
             print("Key listener is not running.")
-        self.count = get_next_count(self.screenshot_directory, "screenshot", "png")
 
-    def on_left_arrow_press(self, event):
+    def on_down_arrow_press(self, event):
         time.sleep(float(self.entry_delay.get()))
         self.take_screenshot()
         keyboard.press_and_release("enter")

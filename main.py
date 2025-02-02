@@ -8,11 +8,16 @@ from src.utils import clean_screenshots
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Choose the mode of operation: run, self, or clean.")
+    parser = argparse.ArgumentParser(
+        description="Choose the mode of operation: run, self, or clean."
+    )
     parser.add_argument(
         "mode",
         choices=["run", "self", "clean"],
-        help="Mode of operation: 'run' for automation, 'self' for screenshot self, 'clean' to delete all screenshots.",
+        help=(
+            "Mode of operation: 'run' for automation, 'self' for screenshot self,"
+            " 'clean' to delete all screenshots."
+        ),
     )
     args = parser.parse_args()
 
