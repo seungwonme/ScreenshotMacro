@@ -1,11 +1,13 @@
-import tkinter as tk
+import os
+import random
 import threading
 import time
-import random
-import os
+import tkinter as tk
+
 import pyautogui
+
 from src.constants import Paths
-from src.utils import take_screenshot, get_next_count
+from src.utils import get_next_count, take_screenshot
 
 
 class ScreenshotMacro:
@@ -104,7 +106,8 @@ class ScreenshotMacro:
         ).start()
 
     def action(self):
-        pyautogui.click()
+        # pyautogui.click()
+        # pyautogui.scroll(-10)
         # if random.random() < 0.15:
         #     pyautogui.press("up")
         #     time.sleep(random.random())
@@ -112,6 +115,7 @@ class ScreenshotMacro:
         #     time.sleep(random.random())
 
         # pyautogui.press("down")
+        pyautogui.press("right")
 
         # if random.random() < 0.1:
         #     pyautogui.scroll(random.randint(-10, 10))
