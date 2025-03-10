@@ -106,7 +106,7 @@ class ScreenshotMacro:
         ).start()
 
     def action(self):
-        # pyautogui.click()
+        pyautogui.click()
         # pyautogui.scroll(-10)
         # if random.random() < 0.15:
         #     pyautogui.press("up")
@@ -115,7 +115,7 @@ class ScreenshotMacro:
         #     time.sleep(random.random())
 
         # pyautogui.press("down")
-        pyautogui.press("right")
+        # pyautogui.press("right")
 
         # if random.random() < 0.1:
         #     pyautogui.scroll(random.randint(-10, 10))
@@ -125,9 +125,7 @@ class ScreenshotMacro:
         #         pyautogui.move(2, 2)
         #         pyautogui.move(-2, -2)
 
-    def run_macro(
-        self, repetitions, delay_min, delay_max, random_delay, x, y, width, height
-    ):
+    def run_macro(self, repetitions, delay_min, delay_max, random_delay, x, y, width, height):
 
         time.sleep(5)
 
