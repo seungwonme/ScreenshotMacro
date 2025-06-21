@@ -16,6 +16,7 @@ class ScreenshotMacro:
         self.stop_event = threading.Event()
         self.screenshot_directory = Paths.SCREENSHOTS_DIR
         self.count = 1
+        self.config = {}
 
     def setup(self):
         self.setup_gui()
@@ -106,24 +107,19 @@ class ScreenshotMacro:
         ).start()
 
     def action(self):
-        pyautogui.click()
-        # pyautogui.scroll(-10)
-        # if random.random() < 0.15:
-        #     pyautogui.press("up")
-        #     time.sleep(random.random())
-        #     pyautogui.press("down")
-        #     time.sleep(random.random())
+        """Execute action based on configuration"""
+        action_config = self.config.get("macro", {}).get("action", {})
+        action_type = action_config.get("type", "key")
 
-        # pyautogui.press("down")
-        # pyautogui.press("right")
-
-        # if random.random() < 0.1:
-        #     pyautogui.scroll(random.randint(-10, 10))
-
-        # if random.random() < 0.1:
-        #     for _ in range(random.randint(1, 5)):
-        #         pyautogui.move(2, 2)
-        #         pyautogui.move(-2, -2)
+        if action_type == "key":
+            key = action_config.get("key", "right")
+            pyautogui.press(key)
+        elif action_type == "click":
+            position = action_config.get("position")
+            if position and len(position) == 2:
+                pyautogui.click(position[0], position[1])
+            else:
+                pyautogui.click()
 
     def run_macro(self, repetitions, delay_min, delay_max, random_delay, x, y, width, height):
 

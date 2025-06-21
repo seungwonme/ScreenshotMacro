@@ -218,3 +218,6 @@ __marimo__/
 # other
 .note/
 .cursor/mcp.json
+
+# screenshots
+screenshots/

@@ -1,0 +1,24 @@
+{
+  "gui": {
+    "window_size": "800x400",
+    "default_area": {
+      "top_left": [0, 45],
+      "bottom_right": [894, 1169]
+    }
+  },
+  "macro": {
+    "default_repetitions": 300,
+    "default_delay": {
+      "min": 1.0,
+      "max": 3.0
+    },
+    "action": {
+      "type": "key",
+      "key": "right"
+    }
+  },
+  "screenshot": {
+    "directory": "./screenshots",
+    "format": "png"
+  }
+}

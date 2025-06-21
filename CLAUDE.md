@@ -13,12 +13,18 @@ ScreenshotMacro is a macOS-specific Python automation tool for screenshot captur
 # Install package and dependencies
 pip install -e .
 
-# Run the application in different modes
+# Run the application in different modes (GUI-based)
 screenshot-macro run    # Macro mode: Automated capture with delays
 screenshot-macro self   # Self mode: Manual capture via right arrow key
 screenshot-macro clean  # Clean mode: Remove all screenshots
 
-# Find duplicate images
+# Utility commands
+screenshot-macro find-duplicates  # Find duplicate images
+screenshot-macro list            # List captured screenshots
+screenshot-macro stats           # Show capture statistics
+screenshot-macro config          # Display current configuration
+
+# Find duplicate images (standalone script)
 python find_duplicate_images.py -d ./screenshots -t 0
 ```
 
@@ -54,15 +60,23 @@ isort .
    - GUI built with tkinter for cross-platform compatibility
 
 ### Key Dependencies
+- `typer`: Modern CLI framework with rich output support
 - `pyautogui`: GUI automation and keyboard simulation
 - `pynput`: Keyboard event monitoring
 - `imagehash`: Perceptual hashing for duplicate detection
 - `Pillow`: Image processing and PDF generation
 
 ### Configuration
-- Runtime settings in `config.json` (window size, capture area, delays)
+- Runtime settings in `config.json` (window size, capture area, delays, action type)
 - Project configuration in `pyproject.toml`
 - Code style enforced via `.flake8`, `.pylintrc`, `.isort.cfg`
+
+### Config.json Structure
+- `gui.window_size`: GUI window dimensions
+- `gui.default_area`: Default screenshot capture area
+- `macro.action.type`: Action type ("key" or "click")
+- `macro.action.key`: Key to press when type is "key"
+- `macro.action.position`: Click position when type is "click"
 
 ## Important Notes
 
