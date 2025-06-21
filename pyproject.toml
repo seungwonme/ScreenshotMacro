@@ -13,24 +13,39 @@ dependencies = [
     "pynput>=1.7.7",
 ]
 
-
 [tool.black]
-line-length = 88
-target-version = ['py39']
+target-version = ['py313']
+line-length = 100
 include = '\.pyi?$'
-extend-exclude = '''
+exclude = '''
 /(
-  # The following are specific to Black, you probably don't want those.
-  tests/data/
-  | profiling/
-  | scripts/generate_schema.py  # Uses match syntax
-)
+    \.git
+| \.hg
+| \.mypy_cache
+| \.tox
+| \.venv
+| _build
+| buck-out
+| build
+)/
 '''
-# We use the unstable style for formatting Black itself. If you
-# want bug-free formatting, you should keep this off. If you want
-# stable formatting across releases, you should also keep `preview = true`
-# (which is implied by this flag) off.
-unstable = true
+preview = true
 
-# Build system information and other project-specific configuration below.
-# NOTE: You don't need this in your own Black configuration.
+[tool.isort]
+py_version = 313
+line_length = 100
+atomic = true
+multi_line_output = 3
+include_trailing_comma = true
+force_grid_wrap = 0
+use_parentheses = true
+known_first_party = []
+known_third_party = []
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+python_classes = "Test*"
+python_functions = "test_*"
+addopts = "-v --tb=short"
+pythonpath = ["."]
