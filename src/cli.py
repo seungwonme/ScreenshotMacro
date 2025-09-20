@@ -1,20 +1,15 @@
 import json
 from datetime import datetime
 from pathlib import Path
-from tkinter import Tk
 
 import typer
 from rich import print as rich_print
 from rich.console import Console
 from rich.table import Table
 
-import src.constants as const
 from src.find_duplicate_images import display_duplicate_groups
 from src.find_duplicate_images import find_duplicate_images as find_dupes
 from src.find_duplicate_images import setup_logger
-from src.gui_setup import setup_common_gui
-from src.macro import ScreenshotMacro
-from src.self import ScreenshotSelf
 from src.utils import clean_screenshots
 
 app = typer.Typer(
@@ -45,35 +40,22 @@ def load_config() -> dict:
 
 @app.command()
 def run():
-    """Run screenshot macro mode with GUI"""
+    """Run screenshot macro mode with PyQt6 GUI"""
 
-    root = Tk()
-    root.geometry(const.GuiConfig.WINDOW_SIZE)
-    root.attributes("-topmost", True)
+    try:
+        from src.gui_pyqt import run_gui
 
-    setup_common_gui(root)
-
-    config = load_config()
-    macro = ScreenshotMacro(root)
-    macro.config = config  # Pass config to macro instance
-    macro.setup()
-
-    root.mainloop()
+        run_gui()
+    except ImportError:
+        rich_print("[red]PyQt6가 설치되지 않았습니다. 'uv add pyqt6' 명령으로 설치하세요.[/red]")
+    except Exception as e:
+        rich_print(f"[red]GUI 실행 오류: {e}[/red]")
 
 
 @app.command()
 def self():
-    """Run self mode (manual screenshot capture) with GUI"""
-
-    root = Tk()
-    root.geometry(const.GuiConfig.WINDOW_SIZE)
-    root.attributes("-topmost", True)
-
-    setup_common_gui(root)
-
-    ScreenshotSelf(root).setup()
-
-    root.mainloop()
+    """Run self mode (manual screenshot capture)"""
+    rich_print("[red]Self mode is deprecated. Use 'screenshot-macro run' for GUI mode.[/red]")
 
 
 @app.command()

@@ -8,7 +8,7 @@ class GuiConfig:
     DEFAULT_DELAY_MIN: float = 1.0
     DEFAULT_DELAY_MAX: float = 3.0
     DEFAULT_TOP_LEFT: tuple = (0, 43)
-    DEFAULT_BOTTOM_RIGHT: tuple = (894, 1169)  # 1126
+    DEFAULT_BOTTOM_RIGHT: tuple = (765, 1169)  # 1126
 
 
 @dataclass

@@ -18,10 +18,9 @@ setup(
         "Pillow",
         "pyautogui",
         "pynput",
-        "keyboard",
+        "pyqt6",
         "typer[all]>=0.9.0",
         "imagehash>=4.3.2",
-        # 필요에 따라 requirements.txt에 있는 다른 의존성을 추가하세요
     ],
     classifiers=[
         "Programming Language :: Python :: 3",
