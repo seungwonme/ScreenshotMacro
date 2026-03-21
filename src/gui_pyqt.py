@@ -1,19 +1,25 @@
-import json
-import sys
-from pathlib import Path
+"""PyQt6 GUI for ScreenshotMacro."""
 
+from __future__ import annotations
+
+import sys
+
+from loguru import logger
 from pynput import keyboard, mouse
 from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QKeySequence, QShortcut
+from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
     QApplication,
     QButtonGroup,
     QCheckBox,
     QDoubleSpinBox,
+    QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QMainWindow,
+    QMessageBox,
+    QProgressBar,
     QPushButton,
     QRadioButton,
     QSpinBox,
@@ -21,283 +27,660 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from src.config import (
+    ActionConfig,
+    AreaConfig,
+    ConfigManager,
+    DelayConfig,
+    get_config,
+    save_config,
+)
+import subprocess
+
 from src.macro_pyqt import MacroWorker
+
+STYLESHEET = """
+QMainWindow {
+    background-color: #1e1e2e;
+}
+QWidget {
+    background-color: #1e1e2e;
+    color: #cdd6f4;
+    font-size: 13px;
+}
+QGroupBox {
+    background-color: #313244;
+    border: 1px solid #45475a;
+    border-radius: 8px;
+    margin-top: 14px;
+    padding: 16px 12px 12px 12px;
+    font-weight: bold;
+    font-size: 13px;
+}
+QGroupBox::title {
+    subcontrol-origin: margin;
+    left: 12px;
+    padding: 0 6px;
+    color: #89b4fa;
+}
+QLabel {
+    background: transparent;
+    color: #bac2de;
+    font-size: 13px;
+}
+QSpinBox, QDoubleSpinBox, QLineEdit {
+    background-color: #45475a;
+    border: 1px solid #585b70;
+    border-radius: 4px;
+    padding: 4px 8px;
+    color: #cdd6f4;
+    min-height: 28px;
+    selection-background-color: #89b4fa;
+}
+QSpinBox:focus, QDoubleSpinBox:focus, QLineEdit:focus {
+    border: 1px solid #89b4fa;
+}
+QSpinBox::up-button, QDoubleSpinBox::up-button {
+    subcontrol-origin: border;
+    subcontrol-position: top right;
+    width: 20px;
+    border-left: 1px solid #585b70;
+    border-bottom: 1px solid #585b70;
+    border-top-right-radius: 4px;
+    background: #585b70;
+}
+QSpinBox::down-button, QDoubleSpinBox::down-button {
+    subcontrol-origin: border;
+    subcontrol-position: bottom right;
+    width: 20px;
+    border-left: 1px solid #585b70;
+    border-bottom-right-radius: 4px;
+    background: #585b70;
+}
+QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {
+    width: 0; height: 0;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-bottom: 5px solid #cdd6f4;
+}
+QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {
+    width: 0; height: 0;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-top: 5px solid #cdd6f4;
+}
+QPushButton {
+    background-color: #45475a;
+    border: 1px solid #585b70;
+    border-radius: 6px;
+    padding: 6px 16px;
+    color: #cdd6f4;
+    min-height: 28px;
+    font-weight: 500;
+}
+QPushButton:hover {
+    background-color: #585b70;
+    border-color: #89b4fa;
+}
+QPushButton:pressed {
+    background-color: #313244;
+}
+QPushButton:disabled {
+    background-color: #313244;
+    color: #585b70;
+    border-color: #45475a;
+}
+QPushButton#startBtn {
+    background-color: #89b4fa;
+    color: #1e1e2e;
+    font-weight: bold;
+    border: none;
+}
+QPushButton#startBtn:hover {
+    background-color: #b4d0fb;
+}
+QPushButton#startBtn:pressed {
+    background-color: #74a8f7;
+}
+QPushButton#startBtn:disabled {
+    background-color: #45475a;
+    color: #585b70;
+}
+QPushButton#cancelBtn {
+    background-color: #f38ba8;
+    color: #1e1e2e;
+    font-weight: bold;
+    border: none;
+}
+QPushButton#cancelBtn:hover {
+    background-color: #f5a3b8;
+}
+QPushButton#cancelBtn:disabled {
+    background-color: #45475a;
+    color: #585b70;
+}
+QPushButton#saveBtn {
+    background-color: #a6e3a1;
+    color: #1e1e2e;
+    font-weight: bold;
+    border: none;
+}
+QPushButton#saveBtn:hover {
+    background-color: #b8eab4;
+}
+QRadioButton, QCheckBox {
+    background: transparent;
+    spacing: 6px;
+    color: #cdd6f4;
+}
+QRadioButton::indicator {
+    width: 14px; height: 14px;
+    border: 2px solid #585b70;
+    border-radius: 9px;
+    background: #45475a;
+}
+QRadioButton::indicator:checked {
+    background: #89b4fa;
+    border-color: #89b4fa;
+}
+QCheckBox::indicator {
+    width: 16px; height: 16px;
+    border: 2px solid #585b70;
+    border-radius: 3px;
+    background: #45475a;
+}
+QCheckBox::indicator:checked {
+    background: #89b4fa;
+    border-color: #89b4fa;
+}
+QProgressBar {
+    background-color: #313244;
+    border: 1px solid #45475a;
+    border-radius: 6px;
+    text-align: center;
+    color: #cdd6f4;
+    min-height: 22px;
+    font-size: 12px;
+}
+QProgressBar::chunk {
+    background-color: #89b4fa;
+    border-radius: 5px;
+}
+QStatusBar {
+    background-color: #181825;
+    color: #6c7086;
+    font-size: 12px;
+}
+"""
 
 
 class ScreenshotGUI(QMainWindow):
-    def __init__(self):
-        super().__init__()
-        self.setWindowTitle("Screenshot Macro")
-        self.setGeometry(200, 100, 900, 500)
-        self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint)
+    """Main GUI window for screenshot macro."""
 
-        # 메인 위젯
+    def __init__(self) -> None:
+        super().__init__()
+        self._config_manager = ConfigManager()
+        self._config = self._config_manager.config
+
+        self._init_window()
+        self._init_state()
+        self._setup_ui()
+        self._load_config_to_ui()
+
+    def _init_window(self) -> None:
+        """Initialize window properties."""
+        self.setWindowTitle("Screenshot Macro")
+        self.setGeometry(200, 100, 520, 560)
+        self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint)
+        self.setMinimumWidth(400)
+        self.statusBar().showMessage("Ready")
+
+    def _init_state(self) -> None:
+        """Initialize internal state variables."""
+        self.worker: MacroWorker | None = None
+        self.top_left: tuple[int, int] = self._config.gui.area.top_left
+        self.bottom_right: tuple[int, int] = self._config.gui.area.bottom_right
+        self.selecting_coordinates: str | bool = False
+        self.drag_start: tuple[int, int] | None = None
+        self.drag_end: tuple[int, int] | None = None
+        self.mouse_position: tuple[int, int] | None = None
+        self.mouse_listener: mouse.Listener | None = None
+        self.key_capture_listener: keyboard.Listener | None = None
+        self.capturing_key: bool = False
+
+    def _setup_ui(self) -> None:
+        """Set up the user interface."""
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         layout = QVBoxLayout(central_widget)
+        layout.setSpacing(8)
+        layout.setContentsMargins(16, 12, 16, 12)
 
-        # 영역 설정
-        self.setup_area_controls(layout)
+        self._setup_area_controls(layout)
+        self._setup_macro_controls(layout)
+        self._setup_action_controls(layout)
+        self._setup_progress(layout)
+        self._setup_buttons(layout)
 
-        # 매크로 설정
-        self.setup_macro_controls(layout)
+    def _setup_area_controls(self, layout: QVBoxLayout) -> None:
+        """Set up screenshot area selection controls."""
+        group = QGroupBox("Capture Area")
+        g_layout = QVBoxLayout(group)
+        g_layout.setSpacing(8)
 
-        # 액션 타입 설정
-        self.setup_action_controls(layout)
+        coords_layout = QHBoxLayout()
+        coords_layout.setSpacing(12)
 
-        # 버튼
-        self.setup_buttons(layout)
+        tl_layout = QVBoxLayout()
+        tl_label = QLabel("Top-Left")
+        tl_label.setStyleSheet("color: #89b4fa; font-weight: bold; font-size: 11px;")
+        tl_layout.addWidget(tl_label)
+        tl_xy = QHBoxLayout()
+        self.tl_x_input = QSpinBox()
+        self.tl_x_input.setRange(0, 10000)
+        self.tl_x_input.setValue(self.top_left[0])
+        self.tl_x_input.setPrefix("X  ")
+        self.tl_y_input = QSpinBox()
+        self.tl_y_input.setRange(0, 10000)
+        self.tl_y_input.setValue(self.top_left[1])
+        self.tl_y_input.setPrefix("Y  ")
+        tl_xy.addWidget(self.tl_x_input)
+        tl_xy.addWidget(self.tl_y_input)
+        tl_layout.addLayout(tl_xy)
+        coords_layout.addLayout(tl_layout)
 
-        # ESC 키 단축키 설정
-        self.escape_shortcut = QShortcut(QKeySequence("Escape"), self)
-        self.escape_shortcut.activated.connect(self.close)
+        br_layout = QVBoxLayout()
+        br_label = QLabel("Bottom-Right")
+        br_label.setStyleSheet("color: #89b4fa; font-weight: bold; font-size: 11px;")
+        br_layout.addWidget(br_label)
+        br_xy = QHBoxLayout()
+        self.br_x_input = QSpinBox()
+        self.br_x_input.setRange(0, 10000)
+        self.br_x_input.setValue(self.bottom_right[0])
+        self.br_x_input.setPrefix("X  ")
+        self.br_y_input = QSpinBox()
+        self.br_y_input.setRange(0, 10000)
+        self.br_y_input.setValue(self.bottom_right[1])
+        self.br_y_input.setPrefix("Y  ")
+        br_xy.addWidget(self.br_x_input)
+        br_xy.addWidget(self.br_y_input)
+        br_layout.addLayout(br_xy)
+        coords_layout.addLayout(br_layout)
 
-        # 워커 스레드
-        self.worker = None
+        g_layout.addLayout(coords_layout)
 
-        # 좌표 설정용 변수
-        self.top_left = (0, 43)
-        self.bottom_right = (765, 1169)
-        self.selecting_coordinates = False
-        self.drag_start = None
-        self.drag_end = None
+        self.tl_x_input.valueChanged.connect(self._update_coords_from_input)
+        self.tl_y_input.valueChanged.connect(self._update_coords_from_input)
+        self.br_x_input.valueChanged.connect(self._update_coords_from_input)
+        self.br_y_input.valueChanged.connect(self._update_coords_from_input)
 
-        # 설정 로드
-        self.load_config()
+        btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(6)
+        self.select_area_btn = QPushButton("Drag Select")
+        self.select_area_btn.clicked.connect(self._select_area_by_drag)
+        self.set_top_left_btn = QPushButton("Pick Top-Left")
+        self.set_top_left_btn.clicked.connect(self._set_top_left_coordinate)
+        self.set_bottom_right_btn = QPushButton("Pick Bottom-Right")
+        self.set_bottom_right_btn.clicked.connect(self._set_bottom_right_coordinate)
+        btn_layout.addWidget(self.select_area_btn)
+        btn_layout.addWidget(self.set_top_left_btn)
+        btn_layout.addWidget(self.set_bottom_right_btn)
+        g_layout.addLayout(btn_layout)
 
-        # 키보드 캡처 리스너
-        self.key_capture_listener = None
-        self.capturing_key = False
+        layout.addWidget(group)
 
-    def setup_area_controls(self, layout):
-        """스크린샷 영역 설정 UI"""
-        area_group = QWidget()
-        area_layout = QVBoxLayout(area_group)
+    def _setup_macro_controls(self, layout: QVBoxLayout) -> None:
+        """Set up macro configuration controls."""
+        group = QGroupBox("Macro Settings")
+        g_layout = QVBoxLayout(group)
+        g_layout.setSpacing(8)
 
-        # 좌표 표시
-        self.top_left_label = QLabel("Top-Left: (0, 43)")
-        self.bottom_right_label = QLabel("Bottom-Right: (765, 1169)")
-
-        area_layout.addWidget(self.top_left_label)
-        area_layout.addWidget(self.bottom_right_label)
-
-        # 좌표 설정 버튼
-        coord_layout = QHBoxLayout()
-
-        # 드래그로 영역 선택 버튼
-        self.select_area_btn = QPushButton("Select Area (Drag)")
-        self.select_area_btn.clicked.connect(self.select_area_by_drag)
-
-        # 개별 좌표 설정 버튼
-        self.set_top_left_btn = QPushButton("Set Top-Left")
-        self.set_top_left_btn.clicked.connect(self.set_top_left_coordinate)
-
-        self.set_bottom_right_btn = QPushButton("Set Bottom-Right")
-        self.set_bottom_right_btn.clicked.connect(self.set_bottom_right_coordinate)
-
-        coord_layout.addWidget(self.select_area_btn)
-        coord_layout.addWidget(self.set_top_left_btn)
-        coord_layout.addWidget(self.set_bottom_right_btn)
-
-        area_layout.addLayout(coord_layout)
-        layout.addWidget(area_group)
-
-    def setup_macro_controls(self, layout):
-        """매크로 설정 UI"""
-        macro_group = QWidget()
-        macro_layout = QVBoxLayout(macro_group)
-
-        # 반복 횟수
         rep_layout = QHBoxLayout()
-        rep_layout.addWidget(QLabel("Repetitions:"))
+        rep_layout.addWidget(QLabel("Repetitions"))
         self.repetitions_input = QSpinBox()
         self.repetitions_input.setRange(1, 10000)
-        self.repetitions_input.setValue(300)
+        self.repetitions_input.setValue(self._config.macro.repetitions)
         rep_layout.addWidget(self.repetitions_input)
-        macro_layout.addLayout(rep_layout)
+        g_layout.addLayout(rep_layout)
 
-        # 딜레이 설정
         delay_layout = QHBoxLayout()
-        delay_layout.addWidget(QLabel("Delay (s):"))
+        delay_layout.addWidget(QLabel("Delay (s)"))
         self.delay_min_input = QDoubleSpinBox()
         self.delay_min_input.setRange(0.1, 60.0)
-        self.delay_min_input.setValue(1.0)
+        self.delay_min_input.setValue(self._config.macro.delay.min)
         self.delay_min_input.setSingleStep(0.1)
         delay_layout.addWidget(self.delay_min_input)
 
-        delay_layout.addWidget(QLabel("Max (s):"))
+        self.delay_max_label = QLabel("Max")
+        delay_layout.addWidget(self.delay_max_label)
         self.delay_max_input = QDoubleSpinBox()
         self.delay_max_input.setRange(0.1, 60.0)
-        self.delay_max_input.setValue(3.0)
+        self.delay_max_input.setValue(self._config.macro.delay.max)
         self.delay_max_input.setSingleStep(0.1)
         self.delay_max_input.setEnabled(False)
         delay_layout.addWidget(self.delay_max_input)
+        g_layout.addLayout(delay_layout)
 
-        macro_layout.addLayout(delay_layout)
-
-        # 랜덤 딜레이 체크박스
         self.random_delay_check = QCheckBox("Use Random Delay")
-        self.random_delay_check.toggled.connect(self.toggle_random_delay)
-        macro_layout.addWidget(self.random_delay_check)
+        self.random_delay_check.toggled.connect(self._toggle_random_delay)
+        g_layout.addWidget(self.random_delay_check)
 
-        layout.addWidget(macro_group)
+        layout.addWidget(group)
 
-    def setup_action_controls(self, layout):
-        """액션 타입 설정 UI"""
-        action_group = QWidget()
-        action_layout = QVBoxLayout(action_group)
+    def _setup_action_controls(self, layout: QVBoxLayout) -> None:
+        """Set up action type controls."""
+        group = QGroupBox("Action")
+        g_layout = QVBoxLayout(group)
+        g_layout.setSpacing(8)
 
-        action_layout.addWidget(QLabel("Action Type:"))
-
-        # 라디오 버튼 그룹
         self.action_type_group = QButtonGroup()
 
-        # 키보드 입력 옵션
         keyboard_layout = QHBoxLayout()
         self.keyboard_radio = QRadioButton("Keyboard")
         self.keyboard_radio.setChecked(True)
         self.action_type_group.addButton(self.keyboard_radio)
         keyboard_layout.addWidget(self.keyboard_radio)
-
         self.keyboard_input = QLineEdit()
-        self.keyboard_input.setText("right")
-        self.keyboard_input.setPlaceholderText("Enter key name (e.g., right, space, enter)")
+        self.keyboard_input.setText(self._config.macro.action.key or "right")
+        self.keyboard_input.setPlaceholderText("e.g. right, space, enter")
         keyboard_layout.addWidget(self.keyboard_input)
-
         self.capture_key_btn = QPushButton("Capture Key")
-        self.capture_key_btn.clicked.connect(self.capture_keyboard_input)
+        self.capture_key_btn.clicked.connect(self._capture_keyboard_input)
         keyboard_layout.addWidget(self.capture_key_btn)
+        g_layout.addLayout(keyboard_layout)
 
-        action_layout.addLayout(keyboard_layout)
-
-        # 마우스 클릭 옵션
         mouse_layout = QHBoxLayout()
         self.mouse_radio = QRadioButton("Mouse Click")
         self.action_type_group.addButton(self.mouse_radio)
         mouse_layout.addWidget(self.mouse_radio)
-
         self.mouse_position_label = QLabel("Position: Current")
         mouse_layout.addWidget(self.mouse_position_label)
-
         self.set_mouse_position_btn = QPushButton("Set Position")
-        self.set_mouse_position_btn.clicked.connect(self.set_mouse_position)
+        self.set_mouse_position_btn.clicked.connect(self._set_mouse_position)
         self.set_mouse_position_btn.setEnabled(False)
         mouse_layout.addWidget(self.set_mouse_position_btn)
+        self.reset_mouse_position_btn = QPushButton("Reset")
+        self.reset_mouse_position_btn.clicked.connect(self._reset_mouse_position)
+        self.reset_mouse_position_btn.setEnabled(False)
+        mouse_layout.addWidget(self.reset_mouse_position_btn)
+        g_layout.addLayout(mouse_layout)
 
-        action_layout.addLayout(mouse_layout)
+        self.keyboard_radio.toggled.connect(self._toggle_action_type)
+        self.mouse_radio.toggled.connect(self._toggle_action_type)
 
-        # 라디오 버튼 토글 이벤트
-        self.keyboard_radio.toggled.connect(self.toggle_action_type)
-        self.mouse_radio.toggled.connect(self.toggle_action_type)
+        layout.addWidget(group)
 
-        layout.addWidget(action_group)
+    def _setup_progress(self, layout: QVBoxLayout) -> None:
+        """Set up progress bar."""
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setValue(0)
+        self.progress_bar.setTextVisible(True)
+        self.progress_bar.setFormat("%v / %m (%p%)")
+        layout.addWidget(self.progress_bar)
 
-    def toggle_action_type(self):
-        """액션 타입 토글"""
-        is_keyboard = self.keyboard_radio.isChecked()
-        self.keyboard_input.setEnabled(is_keyboard)
-        self.capture_key_btn.setEnabled(is_keyboard)
-        self.set_mouse_position_btn.setEnabled(not is_keyboard)
-
-    def setup_buttons(self, layout):
-        """버튼 UI"""
+    def _setup_buttons(self, layout: QVBoxLayout) -> None:
+        """Set up control buttons."""
         button_layout = QHBoxLayout()
+        button_layout.setSpacing(8)
 
         self.start_btn = QPushButton("Start Macro")
-        self.start_btn.clicked.connect(self.start_macro)
+        self.start_btn.setObjectName("startBtn")
+        self.start_btn.clicked.connect(self._start_macro)
 
-        self.cancel_btn = QPushButton("Cancel Macro")
-        self.cancel_btn.clicked.connect(self.cancel_macro)
+        self.cancel_btn = QPushButton("Cancel")
+        self.cancel_btn.setObjectName("cancelBtn")
+        self.cancel_btn.clicked.connect(self._cancel_macro)
         self.cancel_btn.setEnabled(False)
 
         self.save_config_btn = QPushButton("Save Config")
-        self.save_config_btn.clicked.connect(self.save_config)
+        self.save_config_btn.setObjectName("saveBtn")
+        self.save_config_btn.clicked.connect(self._save_config)
+
+        self.open_folder_btn = QPushButton("Open Folder")
+        self.open_folder_btn.clicked.connect(self._open_screenshots_folder)
 
         button_layout.addWidget(self.start_btn)
         button_layout.addWidget(self.cancel_btn)
         button_layout.addWidget(self.save_config_btn)
+        button_layout.addWidget(self.open_folder_btn)
 
         layout.addLayout(button_layout)
 
-    def toggle_random_delay(self, checked):
-        """랜덤 딜레이 토글"""
+    def _update_coords_from_input(self) -> None:
+        """Update internal coordinates from spin box values."""
+        self.top_left = (self.tl_x_input.value(), self.tl_y_input.value())
+        self.bottom_right = (self.br_x_input.value(), self.br_y_input.value())
+
+    def _sync_coord_inputs(self) -> None:
+        """Sync spin box values from internal coordinates."""
+        self.tl_x_input.setValue(self.top_left[0])
+        self.tl_y_input.setValue(self.top_left[1])
+        self.br_x_input.setValue(self.bottom_right[0])
+        self.br_y_input.setValue(self.bottom_right[1])
+
+    def _load_config_to_ui(self) -> None:
+        """Load configuration values to UI elements."""
+        self._sync_coord_inputs()
+        self.repetitions_input.setValue(self._config.macro.repetitions)
+        self.delay_min_input.setValue(self._config.macro.delay.min)
+        self.delay_max_input.setValue(self._config.macro.delay.max)
+
+        action = self._config.macro.action
+        if action.type == "key":
+            self.keyboard_radio.setChecked(True)
+            self.keyboard_input.setText(action.key or "right")
+        else:
+            self.mouse_radio.setChecked(True)
+            if action.position:
+                self.mouse_position = action.position
+                self.mouse_position_label.setText(f"Position: {self.mouse_position}")
+
+    def _toggle_random_delay(self, checked: bool) -> None:
+        """Toggle random delay input."""
         self.delay_max_input.setEnabled(checked)
 
-    def select_area_by_drag(self):
-        """드래그로 영역 선택"""
-        self.hide()
-        self.selecting_coordinates = "drag"
-        QTimer.singleShot(300, self.start_drag_selection)
+    def _toggle_action_type(self) -> None:
+        """Toggle between keyboard and mouse action types."""
+        is_keyboard = self.keyboard_radio.isChecked()
+        self.keyboard_input.setEnabled(is_keyboard)
+        self.capture_key_btn.setEnabled(is_keyboard)
+        self.set_mouse_position_btn.setEnabled(not is_keyboard)
+        self.reset_mouse_position_btn.setEnabled(not is_keyboard)
 
-    def start_drag_selection(self):
-        """드래그 선택 시작"""
+    def _hide_for_selection(self) -> None:
+        """Hide window by moving off-screen (keeps app active on macOS)."""
+        self._saved_pos = self.pos()
+        self.move(-10000, -10000)
+        self.setWindowOpacity(0)
+
+    def _stop_mouse_listener(self) -> None:
+        """Stop and clean up mouse listener."""
+        if self.mouse_listener:
+            self.mouse_listener.stop()
+            self.mouse_listener.join(timeout=1.0)
+            self.mouse_listener = None
+
+    def _stop_key_listener(self) -> None:
+        """Stop and clean up keyboard listener."""
+        if self.key_capture_listener:
+            self.key_capture_listener.stop()
+            self.key_capture_listener = None
+
+    def _select_area_by_drag(self) -> None:
+        """Start drag-based area selection."""
+        self._hide_for_selection()
+        self.selecting_coordinates = "drag"
+        QTimer.singleShot(300, self._start_drag_selection)
+
+    def _start_drag_selection(self) -> None:
+        """Initialize drag selection listener."""
         self.drag_start = None
         self.drag_end = None
 
-        def on_move(x, y):
-            pass  # 마우스 이동 중에는 아무것도 하지 않음
-
-        def on_click(x, y, button, pressed):
+        def on_click(x: int, y: int, button: mouse.Button, pressed: bool) -> bool | None:
             if button == mouse.Button.left:
                 if pressed:
-                    # 드래그 시작
                     self.drag_start = (int(x), int(y))
                 else:
-                    # 드래그 종료
                     if self.drag_start:
                         self.drag_end = (int(x), int(y))
-                        # 좌표 정렬 (top-left, bottom-right 순서로)
                         x1, y1 = self.drag_start
                         x2, y2 = self.drag_end
                         self.top_left = (min(x1, x2), min(y1, y2))
                         self.bottom_right = (max(x1, x2), max(y1, y2))
-
-                        # UI 업데이트를 메인 스레드에서 실행
-                        QTimer.singleShot(0, self.update_area_from_drag)
-                        return False  # 리스너 중지
+                        QTimer.singleShot(0, self._update_area_from_drag)
+                        return False
             elif button == mouse.Button.right:
-                # 우클릭으로 취소
-                QTimer.singleShot(0, self.cancel_selection)
+                QTimer.singleShot(0, self._cancel_selection)
                 return False
+            return None
 
-        self.mouse_listener = mouse.Listener(on_move=on_move, on_click=on_click)
+        self.mouse_listener = mouse.Listener(on_click=on_click)
         self.mouse_listener.start()
 
-    def update_area_from_drag(self):
-        """드래그 선택 결과 업데이트"""
-        self.top_left_label.setText(f"Top-Left: {self.top_left}")
-        self.bottom_right_label.setText(f"Bottom-Right: {self.bottom_right}")
-
-        if hasattr(self, "mouse_listener"):
-            self.mouse_listener.stop()
+    def _update_area_from_drag(self) -> None:
+        """Update UI after drag selection."""
+        self._sync_coord_inputs()
+        self._stop_mouse_listener()
         self.selecting_coordinates = False
+        self._restore_window()
 
-        self.show()
+    def _cancel_selection(self) -> None:
+        """Cancel coordinate selection."""
+        self._stop_mouse_listener()
+        self.selecting_coordinates = False
+        self._restore_window()
+
+    def _restore_window(self) -> None:
+        """Restore and focus the window."""
+        if hasattr(self, "_saved_pos"):
+            self.move(self._saved_pos)
+        self.setWindowOpacity(1)
+        self.showNormal()
+        self.raise_()
+        self.activateWindow()
+        self.setFocus()
+        QTimer.singleShot(100, self._ensure_focus)
+
+    def _ensure_focus(self) -> None:
+        """Ensure window has focus on macOS."""
         self.raise_()
         self.activateWindow()
 
-    def cancel_selection(self):
-        """선택 취소"""
-        if hasattr(self, "mouse_listener"):
-            self.mouse_listener.stop()
-        self.selecting_coordinates = False
-        self.show()
-        self.raise_()
-        self.activateWindow()
+    def _set_top_left_coordinate(self) -> None:
+        """Start top-left coordinate selection."""
+        self._hide_for_selection()
+        self.selecting_coordinates = "top_left"
+        QTimer.singleShot(300, self._start_coordinate_selection)
 
-    def start_macro(self):
-        """매크로 시작"""
+    def _set_bottom_right_coordinate(self) -> None:
+        """Start bottom-right coordinate selection."""
+        self._hide_for_selection()
+        self.selecting_coordinates = "bottom_right"
+        QTimer.singleShot(300, self._start_coordinate_selection)
+
+    def _start_coordinate_selection(self) -> None:
+        """Initialize single-point coordinate selection."""
+
+        def on_click(x: int, y: int, button: mouse.Button, pressed: bool) -> bool | None:
+            if button == mouse.Button.left and not pressed:
+                QTimer.singleShot(0, lambda: self._update_coordinate_from_click(x, y))
+                return False
+            return None
+
+        self.mouse_listener = mouse.Listener(on_click=on_click)
+        self.mouse_listener.start()
+
+    def _update_coordinate_from_click(self, x: int, y: int) -> None:
+        """Update coordinate from click position."""
+        if self.selecting_coordinates == "top_left":
+            self.top_left = (int(x), int(y))
+        elif self.selecting_coordinates == "bottom_right":
+            self.bottom_right = (int(x), int(y))
+
+        self._sync_coord_inputs()
+        self._stop_mouse_listener()
+        self.selecting_coordinates = False
+        self._restore_window()
+
+    def _set_mouse_position(self) -> None:
+        """Start mouse position selection."""
+        self._hide_for_selection()
+        QTimer.singleShot(300, self._start_mouse_position_selection)
+
+    def _start_mouse_position_selection(self) -> None:
+        """Initialize mouse position selection."""
+
+        def on_click(x: int, y: int, button: mouse.Button, pressed: bool) -> bool | None:
+            if button == mouse.Button.left and not pressed:
+                self.mouse_position = (int(x), int(y))
+                QTimer.singleShot(0, self._update_mouse_position)
+                return False
+            return None
+
+        self.mouse_listener = mouse.Listener(on_click=on_click)
+        self.mouse_listener.start()
+
+    def _update_mouse_position(self) -> None:
+        """Update mouse position label."""
+        if self.mouse_position:
+            self.mouse_position_label.setText(f"Position: {self.mouse_position}")
+        self._stop_mouse_listener()
+        self._restore_window()
+
+    def _reset_mouse_position(self) -> None:
+        """Reset mouse position to current (no fixed position)."""
+        self.mouse_position = None
+        self.mouse_position_label.setText("Position: Current")
+
+    def _capture_keyboard_input(self) -> None:
+        """Start keyboard key capture."""
+        self.capture_key_btn.setText("Press any key...")
+        self.capture_key_btn.setEnabled(False)
+        self.capturing_key = True
+
+        def on_press(key: keyboard.Key | keyboard.KeyCode) -> bool:
+            if self.capturing_key:
+                try:
+                    if hasattr(key, "char") and key.char:
+                        key_name = key.char
+                    else:
+                        key_name = str(key).replace("Key.", "")
+                except Exception:
+                    key_name = str(key).replace("Key.", "")
+
+                QTimer.singleShot(0, lambda: self._update_captured_key(key_name))
+                return False
+            return True
+
+        QTimer.singleShot(100, lambda: self._start_key_capture_listener(on_press))
+
+    def _start_key_capture_listener(self, on_press) -> None:
+        """Start the key capture listener."""
+        self.key_capture_listener = keyboard.Listener(on_press=on_press)
+        self.key_capture_listener.start()
+
+    def _update_captured_key(self, key_name: str) -> None:
+        """Update the captured key in UI."""
+        self.keyboard_input.setText(key_name)
+        self.capture_key_btn.setText("Capture Key")
+        self.capture_key_btn.setEnabled(True)
+        self.capturing_key = False
+
+        self._stop_key_listener()
+
+    def _start_macro(self) -> None:
+        """Start the macro execution."""
         if self.worker and self.worker.isRunning():
             return
 
-        # 설정값 가져오기
         repetitions = self.repetitions_input.value()
         delay_min = self.delay_min_input.value()
         delay_max = (
             self.delay_max_input.value() if self.random_delay_check.isChecked() else delay_min
         )
 
-        # 좌표 계산
         x1, y1 = self.top_left
         x2, y2 = self.bottom_right
         x = min(x1, x2)
@@ -305,268 +688,158 @@ class ScreenshotGUI(QMainWindow):
         width = abs(x2 - x1)
         height = abs(y2 - y1)
 
-        # 액션 설정
-        action_config = {
-            "type": "key" if self.keyboard_radio.isChecked() else "click",
-            "key": self.keyboard_input.text() if self.keyboard_radio.isChecked() else None,
-            "position": (
-                self.mouse_position
-                if hasattr(self, "mouse_position") and self.mouse_radio.isChecked()
-                else None
-            ),
-        }
+        if width <= 0 or height <= 0:
+            QMessageBox.warning(self, "Invalid Area", "Screenshot area has invalid dimensions.")
+            return
 
-        # 워커 스레드 시작
+        action_config = ActionConfig(
+            type="key" if self.keyboard_radio.isChecked() else "click",
+            key=self.keyboard_input.text() if self.keyboard_radio.isChecked() else None,
+            position=(
+                self.mouse_position if self.mouse_radio.isChecked() and self.mouse_position else None
+            ),
+        )
+
+        logger.info(f"Starting macro: {repetitions} reps, delay {delay_min}-{delay_max}s")
+
         self.worker = MacroWorker(
             repetitions, delay_min, delay_max, x, y, width, height, action_config
         )
-        self.worker.finished.connect(self.macro_finished)
-        self.worker.progress.connect(self.update_progress)
+        self.worker.finished.connect(self._macro_finished)
+        self.worker.progress.connect(self._update_progress)
+        self.worker.error.connect(self._handle_error)
+        self.worker.countdown.connect(self._update_countdown)
+        self.worker.status_changed.connect(self._update_status)
 
         self.worker.start()
 
-        # UI 상태 변경
         self.start_btn.setEnabled(False)
         self.start_btn.setText("Running...")
         self.cancel_btn.setEnabled(True)
 
-    def cancel_macro(self):
-        """매크로 취소"""
+    def _cancel_macro(self) -> None:
+        """Cancel the running macro."""
         if self.worker:
             self.worker.stop()
+            logger.info("Macro cancelled by user")
 
-    def macro_finished(self):
-        """매크로 완료"""
+    def _update_countdown(self, remaining: int) -> None:
+        """Update countdown display."""
+        self.start_btn.setText(f"Starting in {remaining}s...")
+
+    def _update_status(self, status: str) -> None:
+        """Update status bar."""
+        messages = {
+            "waiting": "Waiting to start...",
+            "running": "Macro running",
+        }
+        self.statusBar().showMessage(messages.get(status, status))
+
+    def _macro_finished(self) -> None:
+        """Handle macro completion."""
         self.start_btn.setEnabled(True)
         self.start_btn.setText("Start Macro")
         self.cancel_btn.setEnabled(False)
+        self.progress_bar.setValue(0)
+        self.statusBar().showMessage("Completed")
 
-    def update_progress(self, count, total):
-        """진행률 업데이트"""
+    def _update_progress(self, count: int, total: int) -> None:
+        """Update progress display."""
+        self.progress_bar.setRange(0, total)
+        self.progress_bar.setValue(count)
         self.start_btn.setText(f"Running... ({count}/{total})")
+        self.statusBar().showMessage(f"Capturing: {count}/{total}")
 
-    def set_top_left_coordinate(self):
-        """Top-Left 좌표 설정"""
-        self.hide()
-        self.selecting_coordinates = "top_left"
-        QTimer.singleShot(300, self.start_coordinate_selection)
+    def _handle_error(self, error_msg: str) -> None:
+        """Handle error from worker thread."""
+        logger.error(f"Macro error: {error_msg}")
+        QMessageBox.warning(self, "Macro Error", error_msg)
 
-    def set_bottom_right_coordinate(self):
-        """Bottom-Right 좌표 설정"""
-        self.hide()
-        self.selecting_coordinates = "bottom_right"
-        QTimer.singleShot(300, self.start_coordinate_selection)
+    def _open_screenshots_folder(self) -> None:
+        """Open the screenshots directory in Finder."""
+        directory = self._config.screenshot.directory
+        directory.mkdir(parents=True, exist_ok=True)
+        subprocess.run(["open", str(directory)])
 
-    def start_coordinate_selection(self):
-        """좌표 선택 시작"""
+    def _save_config(self) -> None:
+        """Save current settings to config file."""
+        self._config.gui.area = AreaConfig(
+            top_left=self.top_left,
+            bottom_right=self.bottom_right,
+        )
+        self._config.gui.window_size = f"{self.width()}x{self.height()}"
 
-        def on_click(x, y, button, pressed):
-            if pressed and button == mouse.Button.left:
-                # 좌표 업데이트를 메인 스레드에서 실행
-                QTimer.singleShot(0, lambda: self.update_coordinate_from_click(x, y))
-                return False  # 리스너 중지
+        self._config.macro.repetitions = self.repetitions_input.value()
+        self._config.macro.delay = DelayConfig(
+            min=self.delay_min_input.value(),
+            max=self.delay_max_input.value(),
+        )
+        self._config.macro.action = ActionConfig(
+            type="key" if self.keyboard_radio.isChecked() else "click",
+            key=self.keyboard_input.text() if self.keyboard_radio.isChecked() else None,
+            position=self.mouse_position if self.mouse_radio.isChecked() else None,
+        )
 
-        self.mouse_listener = mouse.Listener(on_click=on_click)
-        self.mouse_listener.start()
+        if save_config():
+            logger.info("Config saved successfully")
+            QMessageBox.information(self, "Config Saved", "Configuration saved successfully.")
+        else:
+            logger.error("Failed to save config")
+            QMessageBox.warning(self, "Save Failed", "Failed to save configuration.")
 
-    def update_coordinate_from_click(self, x, y):
-        """좌표 업데이트 및 UI 복원"""
-        if self.selecting_coordinates == "top_left":
-            self.top_left = (int(x), int(y))
-            self.top_left_label.setText(f"Top-Left: {self.top_left}")
-        elif self.selecting_coordinates == "bottom_right":
-            self.bottom_right = (int(x), int(y))
-            self.bottom_right_label.setText(f"Bottom-Right: {self.bottom_right}")
+    def _save_config_silent(self) -> None:
+        """Save current settings to config file without UI feedback."""
+        self._config.gui.area = AreaConfig(
+            top_left=self.top_left,
+            bottom_right=self.bottom_right,
+        )
+        self._config.gui.window_size = f"{self.width()}x{self.height()}"
+        self._config.macro.repetitions = self.repetitions_input.value()
+        self._config.macro.delay = DelayConfig(
+            min=self.delay_min_input.value(),
+            max=self.delay_max_input.value(),
+        )
+        self._config.macro.action = ActionConfig(
+            type="key" if self.keyboard_radio.isChecked() else "click",
+            key=self.keyboard_input.text() if self.keyboard_radio.isChecked() else None,
+            position=self.mouse_position if self.mouse_radio.isChecked() else None,
+        )
+        if save_config():
+            logger.info("Config auto-saved on exit")
+        else:
+            logger.error("Failed to auto-save config on exit")
 
-        # 리스너 정리 및 UI 복원
-        if hasattr(self, "mouse_listener"):
-            self.mouse_listener.stop()
-        self.selecting_coordinates = False
-
-        self.show()
-        self.raise_()
-        self.activateWindow()
-
-    def set_mouse_position(self):
-        """마우스 클릭 위치 설정"""
-        self.hide()
-        QTimer.singleShot(300, self.start_mouse_position_selection)
-
-    def start_mouse_position_selection(self):
-        """마우스 위치 선택 시작"""
-
-        def on_click(x, y, button, pressed):
-            if pressed and button == mouse.Button.left:
-                self.mouse_position = (int(x), int(y))
-                QTimer.singleShot(0, self.update_mouse_position)
-                return False
-
-        self.mouse_listener = mouse.Listener(on_click=on_click)
-        self.mouse_listener.start()
-
-    def update_mouse_position(self):
-        """마우스 위치 업데이트"""
-        if hasattr(self, "mouse_position"):
-            self.mouse_position_label.setText(f"Position: {self.mouse_position}")
-
-        if hasattr(self, "mouse_listener"):
-            self.mouse_listener.stop()
-
-        self.show()
-        self.raise_()
-        self.activateWindow()
-
-    def capture_keyboard_input(self):
-        """키보드 입력 캡처"""
-        self.capture_key_btn.setText("Press any key...")
-        self.capture_key_btn.setEnabled(False)
-        self.capturing_key = True
-
-        # 일시적으로 ESC 단축키 비활성화
-        if hasattr(self, "escape_shortcut"):
-            self.escape_shortcut.setEnabled(False)
-
-        def on_press(key):
-            if self.capturing_key:
-                # 키 이름 추출
-                try:
-                    if hasattr(key, "char") and key.char:
-                        key_name = key.char
-                    else:
-                        key_name = str(key).replace("Key.", "")
-                except:
-                    key_name = str(key).replace("Key.", "")
-
-                # UI 업데이트를 메인 스레드에서 실행
-                QTimer.singleShot(0, lambda: self.update_captured_key(key_name))
-                return False  # 리스너 중지
-
-        # 키보드 리스너를 짧은 지연 후 시작
-        QTimer.singleShot(100, lambda: self.start_key_capture_listener(on_press))
-
-    def start_key_capture_listener(self, on_press):
-        """키 캡처 리스너 시작"""
-        self.key_capture_listener = keyboard.Listener(on_press=on_press)
-        self.key_capture_listener.start()
-
-    def update_captured_key(self, key_name):
-        """캡처된 키 업데이트"""
-        self.keyboard_input.setText(key_name)
-        self.capture_key_btn.setText("Capture Key")
-        self.capture_key_btn.setEnabled(True)
-        self.capturing_key = False
-
-        # ESC 단축키 다시 활성화
-        if hasattr(self, "escape_shortcut"):
-            self.escape_shortcut.setEnabled(True)
-
-        if hasattr(self, "key_capture_listener"):
-            self.key_capture_listener.stop()
-
-    def keyPressEvent(self, event):
-        """키 이벤트 처리"""
-        # 키 캡처 중에는 키 이벤트 무시
+    def keyPressEvent(self, event) -> None:
+        """Handle key press events."""
         if self.capturing_key:
             return
 
         if event.key() == Qt.Key.Key_Escape:
             if self.selecting_coordinates:
-                # ESC로 좌표 선택 취소
-                if hasattr(self, "mouse_listener"):
-                    self.mouse_listener.stop()
+                self._stop_mouse_listener()
                 self.selecting_coordinates = False
-                self.show()
+                self._restore_window()
             elif not self.capturing_key:
-                # ESC로 프로그램 종료 (키 캡처 중이 아닐 때만)
                 self.close()
         super().keyPressEvent(event)
 
-    def load_config(self):
-        """설정 파일 로드"""
-        config_path = Path("config.json")
-        if config_path.exists():
-            try:
-                with open(config_path, "r", encoding="utf-8") as f:
-                    config = json.load(f)
-
-                # GUI 설정 로드
-                gui_config = config.get("gui", {})
-                default_area = gui_config.get("default_area", {})
-                if "top_left" in default_area:
-                    self.top_left = tuple(default_area["top_left"])
-                    self.top_left_label.setText(f"Top-Left: {self.top_left}")
-                if "bottom_right" in default_area:
-                    self.bottom_right = tuple(default_area["bottom_right"])
-                    self.bottom_right_label.setText(f"Bottom-Right: {self.bottom_right}")
-
-                # 매크로 설정 로드
-                macro_config = config.get("macro", {})
-                self.repetitions_input.setValue(macro_config.get("default_repetitions", 300))
-
-                delay_config = macro_config.get("default_delay", {})
-                self.delay_min_input.setValue(delay_config.get("min", 1.0))
-                self.delay_max_input.setValue(delay_config.get("max", 3.0))
-
-                # 액션 설정 로드
-                action_config = macro_config.get("action", {})
-                action_type = action_config.get("type", "key")
-                if action_type == "key":
-                    self.keyboard_radio.setChecked(True)
-                    self.keyboard_input.setText(action_config.get("key", "right"))
-                else:
-                    self.mouse_radio.setChecked(True)
-                    position = action_config.get("position")
-                    if position:
-                        self.mouse_position = tuple(position)
-                        self.mouse_position_label.setText(f"Position: {self.mouse_position}")
-
-            except Exception as e:
-                print(f"Failed to load config: {e}")
-
-    def save_config(self):
-        """설정 파일 저장"""
-        config = {
-            "gui": {
-                "window_size": f"{self.width()}x{self.height()}",
-                "default_area": {
-                    "top_left": list(self.top_left),
-                    "bottom_right": list(self.bottom_right),
-                },
-            },
-            "macro": {
-                "default_repetitions": self.repetitions_input.value(),
-                "default_delay": {
-                    "min": self.delay_min_input.value(),
-                    "max": self.delay_max_input.value(),
-                },
-                "action": {
-                    "type": "key" if self.keyboard_radio.isChecked() else "click",
-                    "key": self.keyboard_input.text() if self.keyboard_radio.isChecked() else None,
-                    "position": (
-                        list(self.mouse_position)
-                        if hasattr(self, "mouse_position") and self.mouse_radio.isChecked()
-                        else None
-                    ),
-                },
-            },
-            "screenshot": {"directory": "./screenshots", "format": "png"},
-        }
-
-        config_path = Path("config.json")
-        try:
-            with open(config_path, "w", encoding="utf-8") as f:
-                json.dump(config, f, indent=2, ensure_ascii=False)
-            print("Config saved successfully")
-        except Exception as e:
-            print(f"Failed to save config: {e}")
+    def closeEvent(self, event) -> None:
+        """Clean up resources and auto-save config on close."""
+        self._save_config_silent()
+        self._stop_mouse_listener()
+        self._stop_key_listener()
+        if self.worker and self.worker.isRunning():
+            self.worker.stop()
+            self.worker.wait()
+        super().closeEvent(event)
 
 
-def run_gui():
-    """PyQt6 GUI 실행"""
+def run_gui() -> None:
+    """Run the PyQt6 GUI application."""
     app = QApplication(sys.argv)
-
-    # 어플리케이션 스타일 설정
     app.setStyle("Fusion")
+    app.setStyleSheet(STYLESHEET)
+    app.setFont(QFont("SF Pro Text", 13))
 
     window = ScreenshotGUI()
     window.show()
