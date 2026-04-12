@@ -1,167 +1,77 @@
-# Screenshot Macro for MacOS
+# Screenshot Macro for macOS
 
-This repository contains Python scripts that automate the process of taking screenshots, automating keyboard inputs, and converting images into a PDF. **These scripts are only compatible with MacOS**, as they rely on the `screencapture` command-line utility, which is native to Mac systems.
-
-## Table of Contents
-
-- [Features](#features)
-- [Requirements](#requirements)
-- [Installation](#installation)
-- [Usage](#usage)
-  - [Option 1: Macro Mode](#option-1-macro-mode)
-  - [Option 2: Self Mode](#option-2-self-mode)
-  - [Option 3: Clean Mode](#option-3-clean-mode)
-- [Project Structure](#project-structure)
-- [Notes](#notes)
-- [License](#license)
-- [Contact](#contact)
+macOS 전용 스크린샷 자동화 도구. 지정한 영역을 반복 캡처하면서 키보드/마우스 액션을 자동 실행합니다.
 
 ## Features
 
-- **Macro Mode**: Automatically captures screenshots of a specified area multiple times with a configurable start delay, customizable capture delays, and automated key presses or mouse clicks.
-- **Self Mode**: Captures a screenshot every time the right arrow key is pressed. Key listening can be started and stopped via the GUI.
-- **Clean Mode**: Deletes all screenshots stored in the `screenshots` folder.
-- **PDF Conversion**: Combines captured screenshots into a single PDF file.
+- **Macro Mode**: 지정 영역을 반복 캡처하며 키 입력 또는 마우스 클릭을 자동 실행 (시작 딜레이, 랜덤 딜레이 지원)
+- **Duplicate Detection**: 퍼셉추얼 해시 기반 중복 이미지 탐지
+- **Session Management**: 캡처 세션별 디렉토리 자동 생성 (`screenshots/01/`, `screenshots/02/`, ...)
+- **Config Persistence**: GUI에서 설정 변경 시 `config.json`에 자동 저장
 
 ## Requirements
 
-- **MacOS** (due to the usage of the `screencapture` command)
-- **Python 3.6** or higher
-
-To install the required Python libraries, run:
-
-```bash
-pip install -r requirements.txt
-```
+- **macOS** (`screencapture` 명령어 필요)
+- **Python 3.11+**
+- **uv** (패키지 매니저)
 
 ## Installation
 
-### 1. Clone or Download the Repository
-
 ```bash
-git clone https://github.com/yourusername/ScreenshotMacro.git
+git clone https://github.com/seungwonme/ScreenshotMacro.git
 cd ScreenshotMacro
-```
-
-### 2. (Optional) Create and Activate a Virtual Environment
-
-```bash
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-```
-
-### 3. Install Dependencies
-
-```bash
-pip install -r requirements.txt
-```
-
-Alternatively, install the package locally:
-
-```bash
-pip install -e .
+uv sync
 ```
 
 ## Usage
 
-After installation, you can run the application using the `screenshot-macro` command followed by the desired mode:
-
 ```bash
-screenshot-macro <mode>
+# GUI 실행
+uv run python -m src.cli run
+
+# 스크린샷 정리
+uv run python -m src.cli clean
+uv run python -m src.cli clean -f  # 확인 없이 삭제
+
+# 유틸리티
+uv run python -m src.cli list             # 캡처된 스크린샷 목록
+uv run python -m src.cli stats            # 통계
+uv run python -m src.cli config           # 현재 설정 표시
+uv run python -m src.cli find-duplicates  # 중복 이미지 탐지
+
+# 디버그 로깅
+uv run python -m src.cli -v run
 ```
 
-Where `<mode>` is one of `run`, `self`, or `clean`.
+### GUI 사용법
 
-### Option 1: Macro Mode
-
-Automates screenshot capturing and keyboard inputs.
-
-```bash
-screenshot-macro run
-```
-
-1. **Set the Screenshot Area**:
-
-   - Click **"Set Top-Left"** and select the top-left corner of the area.
-   - Click **"Set Bottom-Right"** and select the bottom-right corner.
-
-2. **Configure Settings**:
-
-   - **Repetitions**: Enter the number of screenshots to capture.
-   - **Start Delay (s)**: Enter how long the macro should wait before the first capture starts.
-   - **Delay (s)**: Enter the delay between each screenshot.
-   - **Use Random Delay**: Check this to use a random delay between the specified minimum and maximum values.
-
-3. **Start the Macro**:
-
-   - Click **"Start Macro"** to begin.
-   - The macro will capture screenshots and simulate right arrow key presses.
-
-4. **Cancel the Macro**:
-   - Click **"Cancel Macro"** to stop the macro at any time.
-
-### Option 2: Self Mode
-
-Captures a screenshot each time the right arrow key is pressed.
-
-```bash
-screenshot-macro self
-```
-
-1. **Set the Screenshot Area**:
-
-   - Click **"Set Top-Left"** and select the top-left corner of the area.
-   - Click **"Set Bottom-Right"** and select the bottom-right corner.
-
-2. **Start Key Listener**:
-
-   - Click **"Start Key Listener"** to begin listening for the right arrow key.
-
-3. **Capture Screenshots**:
-
-   - Press the **Right Arrow Key** to capture a screenshot of the specified area.
-   - Screenshots are saved in the `screenshots` folder.
-
-4. **Stop Key Listener**:
-
-   - Click **"Stop Key Listener"** to stop listening for key presses.
-
-5. **Convert to PDF**:
-   - Click **"Convert to PDF"** to combine all captured screenshots into a single PDF file.
-
-### Option 3: Clean Mode
-
-Deletes all screenshots in the `screenshots` folder.
-
-```bash
-screenshot-macro clean
-```
-
-- Use this mode to clear all previously captured screenshots.
+1. **Capture Area 설정**: 좌표 직접 입력, Drag Select, 또는 Pick Top-Left / Pick Bottom-Right 클릭
+2. **Macro Settings 설정**:
+   - **Repetitions**: 캡처 반복 횟수
+   - **Start Delay (s)**: 매크로 시작 전 대기 시간
+   - **Delay (s)**: 각 캡처 사이 딜레이 (Use Random Delay로 범위 지정 가능)
+3. **Action 설정**: Keyboard (키 입력) 또는 Mouse Click (고정 좌표 또는 현재 커서 위치)
+4. **Start Macro**로 실행, **Cancel**로 중지
 
 ## Project Structure
 
 ```
-ScreenshotMacro/
-├── README.md
-├── main.py
-├── requirements.txt
-├── screenshots/             # Folder where screenshots are saved
-├── setup.py
-└── src/
-    ├── __init__.py
-    ├── constants.py         # Constants and path configurations
-    ├── gui_setup.py         # Common GUI setup module
-    ├── macro.py             # Macro mode class
-    ├── utils.py             # Utility functions
-    └── self.py              # Self mode class
+screenshotMacro/
+├── src/
+│   ├── cli.py              # Typer 기반 CLI
+│   ├── config.py           # Dataclass 기반 설정 관리 (싱글톤 ConfigManager)
+│   ├── gui_pyqt.py         # PyQt6 GUI (Catppuccin Mocha 테마)
+│   ├── macro_pyqt.py       # QThread 기반 매크로 워커
+│   ├── utils.py            # screencapture 래퍼, 파일 관리
+│   └── find_duplicate_images.py  # 퍼셉추얼 해시 중복 탐지
+├── tests/                  # pytest 테스트
+├── config.json             # 런타임 설정
+├── build_app.py            # PyInstaller 빌드 스크립트
+└── pyproject.toml
 ```
 
 ## Notes
 
-- **MacOS Only**: These scripts rely on the `screencapture` command, which is only available on MacOS.
-- **Screenshots Folder**: By default, screenshots are saved in the `screenshots` directory within the project.
-- **PDF Output**: The combined PDF is saved in the project directory, with a filename like `1.pdf`.
-- **Permissions**: You may need to grant screen recording permissions to the Python interpreter in your Mac's System Preferences under Security & Privacy.
-
-Accessibility Keyboard
+- macOS 시스템 환경설정에서 Python에 화면 녹화 권한 필요
+- 스크린샷은 `screenshots/` 하위 세션 디렉토리에 저장
+- GUI 종료 시 현재 설정이 `config.json`에 자동 저장

@@ -112,4 +112,4 @@ screenshotMacro/
 2. **Permissions**: Screen recording permission required for Python
 3. **Screenshot Storage**: Output to `screenshots/` directory (configurable)
 4. **Logging**: Uses loguru - enable debug with `-v` flag
-5. **No Test Suite**: pytest configured but no tests implemented
+5. **Tests**: pytest 테스트 존재 (`tests/test_config.py`, `tests/test_utils.py`, `tests/test_macro_worker.py`, `tests/test_find_duplicates.py`)
