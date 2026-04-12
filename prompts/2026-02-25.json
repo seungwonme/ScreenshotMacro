@@ -1,0 +1,32 @@
+[
+  {
+    "time": "05:13:16",
+    "user": "seungwonan",
+    "prompt": "/pdca plan 코드베이스 확인 후 기능이 동작하도록 개선 및 리펙토링\n대규모 리서치 필요"
+  },
+  {
+    "time": "05:18:56",
+    "user": "seungwonan",
+    "prompt": "/pdca design codebase-refactoring"
+  },
+  {
+    "time": "05:20:25",
+    "user": "seungwonan",
+    "prompt": "/pdca do codebase-refactoring"
+  },
+  {
+    "time": "05:27:11",
+    "user": "seungwonan",
+    "prompt": "/pdca analyze codebase-refactoring"
+  },
+  {
+    "time": "05:31:53",
+    "user": "seungwonan",
+    "prompt": "아직도 그런데??"
+  },
+  {
+    "time": "05:34:41",
+    "user": "seungwonan",
+    "prompt": "안된다고 아직도"
+  }
+]

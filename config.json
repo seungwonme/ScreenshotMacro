@@ -1,24 +1,32 @@
 {
   "gui": {
-    "window_size": "800x400",
+    "window_size": "520x693",
     "default_area": {
-      "top_left": [0, 45],
-      "bottom_right": [765, 1169]
+      "top_left": [
+        0,
+        0
+      ],
+      "bottom_right": [
+        1080,
+        1440
+      ]
     }
   },
   "macro": {
-    "default_repetitions": 300,
+    "default_repetitions": 500,
     "default_delay": {
       "min": 1.0,
       "max": 3.0
     },
     "action": {
-      "type": "key",
-      "key": "right"
-    }
+      "type": "click",
+      "position": null
+    },
+    "initial_wait": 10.0
   },
   "screenshot": {
-    "directory": "./screenshots",
-    "format": "png"
+    "directory": "/Users/seungwonan/Dev/3-tool/screenshotMacro/screenshots",
+    "format": "png",
+    "prefix": "screenshot"
   }
 }

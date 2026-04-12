@@ -33,6 +33,7 @@ class MacroWorker(QThread):
         width: int,
         height: int,
         action_config: ActionConfig | None = None,
+        initial_wait: float | None = None,
     ) -> None:
         super().__init__()
         self.repetitions = repetitions
@@ -46,6 +47,10 @@ class MacroWorker(QThread):
         self.should_stop = False
 
         self._config = get_config()
+        self.initial_wait = max(
+            0.0,
+            initial_wait if initial_wait is not None else self._config.macro.initial_wait,
+        )
 
     def stop(self) -> None:
         """Request the thread to stop."""
@@ -55,7 +60,7 @@ class MacroWorker(QThread):
     def run(self) -> None:
         """Execute the macro loop."""
         try:
-            initial_wait = self._config.macro.initial_wait
+            initial_wait = self.initial_wait
             logger.info(f"Starting macro with {initial_wait}s initial wait")
             self.status_changed.emit("waiting")
             for remaining in range(int(initial_wait), 0, -1):

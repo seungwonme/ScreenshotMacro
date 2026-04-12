@@ -4,83 +4,112 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-ScreenshotMacro is a macOS-specific Python automation tool for screenshot capture and processing. The tool provides automated screenshot capturing with keyboard automation, manual capture via keypress events, and utilities for cleanup and duplicate detection.
+ScreenshotMacro is a macOS-specific Python automation tool for screenshot capture and processing. The tool provides automated screenshot capturing with keyboard automation and utilities for cleanup and duplicate detection.
 
 ## Development Commands
 
 ### Installation and Setup
 ```bash
-# Install package and dependencies
-pip install -e .
+# Install dependencies with uv
+uv sync
 
-# Run the application in different modes (GUI-based)
-screenshot-macro run    # Macro mode: Automated capture with delays
-screenshot-macro self   # Self mode: Manual capture via right arrow key
-screenshot-macro clean  # Clean mode: Remove all screenshots
+# Run the application (GUI-based)
+uv run python -m src.cli run     # Launch GUI for macro mode
+uv run python -m src.cli clean   # Remove all screenshots
+uv run python -m src.cli config  # Display current configuration
 
 # Utility commands
-screenshot-macro find-duplicates  # Find duplicate images
-screenshot-macro list            # List captured screenshots
-screenshot-macro stats           # Show capture statistics
-screenshot-macro config          # Display current configuration
+uv run python -m src.cli find-duplicates  # Find duplicate images
+uv run python -m src.cli list             # List captured screenshots
+uv run python -m src.cli stats            # Show capture statistics
 
-# Find duplicate images (standalone script)
-python find_duplicate_images.py -d ./screenshots -t 0
-```
-
-### Code Quality (when configured)
-```bash
-# Format code with Black
-black . --line-length 88
-
-# Run linting
-flake8 --max-line-length=100
-pylint src/
-
-# Sort imports
-isort .
+# Verbose mode (debug logging)
+uv run python -m src.cli -v run
 ```
 
 ## Architecture
 
+### Project Structure
+```
+screenshotMacro/
+├── src/
+│   ├── __init__.py
+│   ├── cli.py              # CLI entry point (typer-based)
+│   ├── config.py           # Unified configuration management
+│   ├── gui_pyqt.py         # PyQt6 GUI implementation
+│   ├── macro_pyqt.py       # Screenshot macro worker thread
+│   ├── utils.py            # Utility functions (screenshot, cleanup)
+│   └── find_duplicate_images.py  # Image duplicate detection
+├── config.json             # Runtime configuration
+├── pyproject.toml          # Project configuration
+└── screenshots/            # Screenshot output directory
+```
+
 ### Core Components
 
-1. **Entry Points**
-   - `main.py`: CLI argument parsing and mode selection
-   - `find_duplicate_images.py`: Standalone duplicate detection using perceptual hashing
+1. **Configuration (`src/config.py`)**
+   - Dataclass-based configuration with validation
+   - Singleton `ConfigManager` for centralized config access
+   - Auto-loading from `config.json` with defaults fallback
 
-2. **Mode Implementations** (in `src/`)
-   - `macro.py`: MacroMode class - automated capture with configurable delays
-   - `self.py`: SelfMode class - manual capture triggered by right arrow key
-   - `utils.py`: Shared utilities including screenshot capture and PDF conversion
+2. **CLI (`src/cli.py`)**
+   - Typer-based CLI with rich output
+   - Loguru logging integration
+   - Commands: run, clean, list, stats, config, find-duplicates
 
-3. **Platform Integration**
-   - Uses macOS native `screencapture` command for screenshots
-   - Requires screen recording permissions in System Preferences
-   - GUI built with tkinter for cross-platform compatibility
+3. **GUI (`src/gui_pyqt.py`)**
+   - PyQt6 main window with area selection
+   - Coordinate capture via mouse click/drag
+   - Keyboard key capture for action binding
+
+4. **Macro Worker (`src/macro_pyqt.py`)**
+   - QThread-based background execution
+   - Progress signals for UI updates
+   - Error handling with signals
+
+5. **Utilities (`src/utils.py`)**
+   - `take_screenshot()`: macOS screencapture wrapper with error handling
+   - `get_next_count()`: File index calculation
+   - `clean_screenshots()`: Bulk file deletion
+   - `list_screenshots()`: Directory listing with sorting
 
 ### Key Dependencies
-- `typer`: Modern CLI framework with rich output support
-- `pyautogui`: GUI automation and keyboard simulation
-- `pynput`: Keyboard event monitoring
+- `typer[all]`: CLI framework with rich support
+- `loguru`: Structured logging
+- `pyqt6`: GUI framework
+- `pyautogui`: GUI automation
+- `pynput`: Keyboard/mouse event monitoring
 - `imagehash`: Perceptual hashing for duplicate detection
-- `Pillow`: Image processing and PDF generation
+- `pillow`: Image processing
 
-### Configuration
-- Runtime settings in `config.json` (window size, capture area, delays, action type)
-- Project configuration in `pyproject.toml`
-- Code style enforced via `.flake8`, `.pylintrc`, `.isort.cfg`
-
-### Config.json Structure
-- `gui.window_size`: GUI window dimensions
-- `gui.default_area`: Default screenshot capture area
-- `macro.action.type`: Action type ("key" or "click")
-- `macro.action.key`: Key to press when type is "key"
-- `macro.action.position`: Click position when type is "click"
+### Configuration (`config.json`)
+```json
+{
+  "gui": {
+    "window_size": "900x500",
+    "default_area": {
+      "top_left": [0, 45],
+      "bottom_right": [765, 1169]
+    }
+  },
+  "macro": {
+    "default_repetitions": 300,
+    "default_delay": { "min": 1.0, "max": 3.0 },
+    "action": { "type": "key", "key": "right" },
+    "initial_wait": 5.0
+  },
+  "screenshot": {
+    "directory": "./screenshots",
+    "format": "png",
+    "prefix": "screenshot"
+  }
+}
+```
 
 ## Important Notes
 
-1. **macOS Only**: The project relies on `screencapture` command exclusive to macOS
-2. **Permissions**: Requires screen recording permissions for Python interpreter
-3. **Screenshot Storage**: All captures saved to `screenshots/` directory
-4. **No Test Suite**: Currently no tests implemented despite pytest configuration
+1. **macOS Only**: Requires `screencapture` command (macOS native)
+2. **Permissions**: Screen recording permission required for Python
+3. **Screenshot Storage**: Output to `screenshots/` directory (configurable)
+4. **Logging**: Uses loguru - enable debug with `-v` flag
+5. **No Test Suite**: pytest configured but no tests implemented

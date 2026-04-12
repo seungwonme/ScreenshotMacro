@@ -18,7 +18,7 @@ This repository contains Python scripts that automate the process of taking scre
 
 ## Features
 
-- **Macro Mode**: Automatically captures screenshots of a specified area multiple times with customizable delays and automates right arrow key presses.
+- **Macro Mode**: Automatically captures screenshots of a specified area multiple times with a configurable start delay, customizable capture delays, and automated key presses or mouse clicks.
 - **Self Mode**: Captures a screenshot every time the right arrow key is pressed. Key listening can be started and stopped via the GUI.
 - **Clean Mode**: Deletes all screenshots stored in the `screenshots` folder.
 - **PDF Conversion**: Combines captured screenshots into a single PDF file.
@@ -88,6 +88,7 @@ screenshot-macro run
 2. **Configure Settings**:
 
    - **Repetitions**: Enter the number of screenshots to capture.
+   - **Start Delay (s)**: Enter how long the macro should wait before the first capture starts.
    - **Delay (s)**: Enter the delay between each screenshot.
    - **Use Random Delay**: Check this to use a random delay between the specified minimum and maximum values.
 

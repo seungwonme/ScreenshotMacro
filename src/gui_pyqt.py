@@ -343,6 +343,16 @@ class ScreenshotGUI(QMainWindow):
         rep_layout.addWidget(self.repetitions_input)
         g_layout.addLayout(rep_layout)
 
+        start_delay_layout = QHBoxLayout()
+        start_delay_layout.addWidget(QLabel("Start Delay (s)"))
+        self.initial_wait_input = QDoubleSpinBox()
+        self.initial_wait_input.setRange(0.0, 600.0)
+        self.initial_wait_input.setDecimals(1)
+        self.initial_wait_input.setSingleStep(0.5)
+        self.initial_wait_input.setValue(self._config.macro.initial_wait)
+        start_delay_layout.addWidget(self.initial_wait_input)
+        g_layout.addLayout(start_delay_layout)
+
         delay_layout = QHBoxLayout()
         delay_layout.addWidget(QLabel("Delay (s)"))
         self.delay_min_input = QDoubleSpinBox()
@@ -463,6 +473,7 @@ class ScreenshotGUI(QMainWindow):
         """Load configuration values to UI elements."""
         self._sync_coord_inputs()
         self.repetitions_input.setValue(self._config.macro.repetitions)
+        self.initial_wait_input.setValue(self._config.macro.initial_wait)
         self.delay_min_input.setValue(self._config.macro.delay.min)
         self.delay_max_input.setValue(self._config.macro.delay.max)
 
@@ -676,6 +687,7 @@ class ScreenshotGUI(QMainWindow):
             return
 
         repetitions = self.repetitions_input.value()
+        initial_wait = self.initial_wait_input.value()
         delay_min = self.delay_min_input.value()
         delay_max = (
             self.delay_max_input.value() if self.random_delay_check.isChecked() else delay_min
@@ -692,6 +704,8 @@ class ScreenshotGUI(QMainWindow):
             QMessageBox.warning(self, "Invalid Area", "Screenshot area has invalid dimensions.")
             return
 
+        self._config.macro.initial_wait = initial_wait
+
         action_config = ActionConfig(
             type="key" if self.keyboard_radio.isChecked() else "click",
             key=self.keyboard_input.text() if self.keyboard_radio.isChecked() else None,
@@ -700,10 +714,21 @@ class ScreenshotGUI(QMainWindow):
             ),
         )
 
-        logger.info(f"Starting macro: {repetitions} reps, delay {delay_min}-{delay_max}s")
+        logger.info(
+            f"Starting macro: {repetitions} reps, start delay {initial_wait}s, "
+            f"delay {delay_min}-{delay_max}s"
+        )
 
         self.worker = MacroWorker(
-            repetitions, delay_min, delay_max, x, y, width, height, action_config
+            repetitions,
+            delay_min,
+            delay_max,
+            x,
+            y,
+            width,
+            height,
+            action_config=action_config,
+            initial_wait=initial_wait,
         )
         self.worker.finished.connect(self._macro_finished)
         self.worker.progress.connect(self._update_progress)
@@ -714,7 +739,7 @@ class ScreenshotGUI(QMainWindow):
         self.worker.start()
 
         self.start_btn.setEnabled(False)
-        self.start_btn.setText("Running...")
+        self.start_btn.setText("Waiting..." if initial_wait > 0 else "Running...")
         self.cancel_btn.setEnabled(True)
 
     def _cancel_macro(self) -> None:
@@ -770,6 +795,7 @@ class ScreenshotGUI(QMainWindow):
         self._config.gui.window_size = f"{self.width()}x{self.height()}"
 
         self._config.macro.repetitions = self.repetitions_input.value()
+        self._config.macro.initial_wait = self.initial_wait_input.value()
         self._config.macro.delay = DelayConfig(
             min=self.delay_min_input.value(),
             max=self.delay_max_input.value(),
@@ -795,6 +821,7 @@ class ScreenshotGUI(QMainWindow):
         )
         self._config.gui.window_size = f"{self.width()}x{self.height()}"
         self._config.macro.repetitions = self.repetitions_input.value()
+        self._config.macro.initial_wait = self.initial_wait_input.value()
         self._config.macro.delay = DelayConfig(
             min=self.delay_min_input.value(),
             max=self.delay_max_input.value(),

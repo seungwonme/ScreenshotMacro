@@ -1,16 +1,21 @@
-import json
+"""CLI interface for ScreenshotMacro."""
+
+from __future__ import annotations
+
+import sys
 from datetime import datetime
-from pathlib import Path
 
 import typer
+from loguru import logger
 from rich import print as rich_print
 from rich.console import Console
 from rich.table import Table
 
+from src.config import ConfigManager, get_config
 from src.find_duplicate_images import display_duplicate_groups
 from src.find_duplicate_images import find_duplicate_images as find_dupes
-from src.find_duplicate_images import setup_logger
-from src.utils import clean_screenshots
+from src.utils import clean_screenshots as do_clean_screenshots
+from src.utils import list_screenshots as do_list_screenshots
 
 app = typer.Typer(
     name="screenshot-macro",
@@ -23,75 +28,97 @@ app = typer.Typer(
 console = Console()
 
 
-def load_config() -> dict:
-    """Load configuration from config.json"""
-    config_path = Path("config.json")
-    if not config_path.exists():
-        typer.echo("Warning: config.json not found, using defaults", err=True)
-        return {}
+def _configure_logging(verbose: bool = False) -> None:
+    """Configure loguru logging."""
+    logger.remove()
+    level = "DEBUG" if verbose else "INFO"
+    logger.add(
+        sys.stderr,
+        format="<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | <level>{message}</level>",
+        level=level,
+        colorize=True,
+    )
 
-    try:
-        with open(config_path, encoding="utf-8") as f:
-            return json.load(f)
-    except json.JSONDecodeError as e:
-        typer.echo(f"Error parsing config.json: {e}", err=True)
-        return {}
+
+@app.callback()
+def main_callback(
+    verbose: bool = typer.Option(False, "-v", "--verbose", help="Enable verbose output"),
+) -> None:
+    """Screenshot automation tool for macOS."""
+    _configure_logging(verbose)
 
 
 @app.command()
-def run():
-    """Run screenshot macro mode with PyQt6 GUI"""
-
+def run() -> None:
+    """Run screenshot macro mode with PyQt6 GUI."""
     try:
         from src.gui_pyqt import run_gui
 
         run_gui()
     except ImportError:
-        rich_print("[red]PyQt6가 설치되지 않았습니다. 'uv add pyqt6' 명령으로 설치하세요.[/red]")
+        rich_print("[red]PyQt6 is not installed. Run 'uv add pyqt6' to install.[/red]")
+        raise typer.Exit(1)
     except Exception as e:
-        rich_print(f"[red]GUI 실행 오류: {e}[/red]")
+        logger.error(f"GUI execution error: {e}")
+        rich_print(f"[red]GUI error: {e}[/red]")
+        raise typer.Exit(1)
 
 
-@app.command()
-def self():
-    """Run self mode (manual screenshot capture)"""
+@app.command(name="self", deprecated=True)
+def self_mode() -> None:
+    """[DEPRECATED] Use 'screenshot-macro run' instead."""
     rich_print("[red]Self mode is deprecated. Use 'screenshot-macro run' for GUI mode.[/red]")
+    raise typer.Exit(1)
 
 
 @app.command()
-def clean():
-    """Clean all screenshots from the screenshots directory"""
-    typer.confirm("Are you sure you want to delete all screenshots?", abort=True)
-    clean_screenshots()
-    rich_print("[green]✓[/green] All screenshots have been cleaned")
+def clean(
+    force: bool = typer.Option(False, "-f", "--force", help="Skip confirmation prompt"),
+) -> None:
+    """Clean all screenshots from the screenshots directory."""
+    if not force:
+        typer.confirm("Are you sure you want to delete all screenshots?", abort=True)
+
+    config = get_config()
+    deleted = do_clean_screenshots(config.screenshot)
+
+    if deleted > 0:
+        rich_print(f"[green]Cleaned {deleted} screenshot(s)[/green]")
+    else:
+        rich_print("[yellow]No screenshots to clean[/yellow]")
 
 
 @app.command(name="find-duplicates")
 def find_duplicates(
-    directory: str = typer.Option("./screenshots", "-d", "--directory", help="Directory to search"),
-    threshold: int = typer.Option(0, "-t", "--threshold", help="Hash difference threshold"),
-):
-    """Find duplicate images in the specified directory"""
+    directory: str = typer.Option(
+        None,
+        "-d",
+        "--directory",
+        help="Directory to search (default: from config)",
+    ),
+    threshold: int = typer.Option(
+        0,
+        "-t",
+        "--threshold",
+        help="Hash difference threshold (0 for exact match)",
+    ),
+) -> None:
+    """Find duplicate images in the specified directory."""
+    if directory is None:
+        config = get_config()
+        directory = str(config.screenshot.directory)
 
-    logger = setup_logger()
-    duplicates = find_dupes(directory, threshold, logger)
-    display_duplicate_groups(duplicates, logger)
+    duplicates = find_dupes(directory, threshold)
+    display_duplicate_groups(duplicates)
 
 
-@app.command()
-def list_screenshots():
-    """List all screenshots in the screenshots directory"""
-    screenshots_dir = Path("./screenshots")
-
-    if not screenshots_dir.exists():
-        rich_print("[yellow]Screenshots directory does not exist[/yellow]")
-        return
-
-    screenshots = sorted(
-        [f for f in screenshots_dir.iterdir() if f.suffix.lower() in {".png", ".jpg", ".jpeg"}],
-        key=lambda x: x.stat().st_mtime,
-        reverse=True,
-    )
+@app.command(name="list")
+def list_screenshots(
+    limit: int = typer.Option(20, "-n", "--limit", help="Maximum screenshots to show"),
+) -> None:
+    """List all screenshots in the screenshots directory."""
+    config = get_config()
+    screenshots = do_list_screenshots(config.screenshot)
 
     if not screenshots:
         rich_print("[yellow]No screenshots found[/yellow]")
@@ -102,33 +129,24 @@ def list_screenshots():
     table.add_column("Size", justify="right", style="green")
     table.add_column("Modified", style="magenta")
 
-    for screenshot in screenshots[:20]:  # Show last 20
+    for screenshot in screenshots[:limit]:
         size = screenshot.stat().st_size
         size_str = f"{size / 1024:.1f} KB" if size < 1024 * 1024 else f"{size / 1024 / 1024:.1f} MB"
         modified = screenshot.stat().st_mtime
-
         date_str = datetime.fromtimestamp(modified).strftime("%Y-%m-%d %H:%M:%S")
-
         table.add_row(screenshot.name, size_str, date_str)
 
     console.print(table)
 
-    if len(screenshots) > 20:
-        rich_print(f"\n[dim]... and {len(screenshots) - 20} more files[/dim]")
+    if len(screenshots) > limit:
+        rich_print(f"\n[dim]... and {len(screenshots) - limit} more files[/dim]")
 
 
 @app.command()
-def stats():
-    """Show statistics about captured screenshots"""
-    screenshots_dir = Path("./screenshots")
-
-    if not screenshots_dir.exists():
-        rich_print("[yellow]Screenshots directory does not exist[/yellow]")
-        return
-
-    screenshots = [
-        f for f in screenshots_dir.iterdir() if f.suffix.lower() in {".png", ".jpg", ".jpeg"}
-    ]
+def stats() -> None:
+    """Show statistics about captured screenshots."""
+    config = get_config()
+    screenshots = do_list_screenshots(config.screenshot)
 
     if not screenshots:
         rich_print("[yellow]No screenshots found[/yellow]")
@@ -137,7 +155,6 @@ def stats():
     total_count = len(screenshots)
     total_size = sum(f.stat().st_size for f in screenshots)
 
-    # Get date range
     mtimes = [f.stat().st_mtime for f in screenshots]
     oldest = min(mtimes)
     newest = max(mtimes)
@@ -145,46 +162,64 @@ def stats():
     oldest_date = datetime.fromtimestamp(oldest).strftime("%Y-%m-%d %H:%M:%S")
     newest_date = datetime.fromtimestamp(newest).strftime("%Y-%m-%d %H:%M:%S")
 
-    # Display stats
     rich_print("[bold]Screenshot Statistics[/bold]\n")
-    rich_print(f"📊 Total screenshots: [cyan]{total_count}[/cyan]")
-    rich_print(f"💾 Total size: [green]{total_size / 1024 / 1024:.1f} MB[/green]")
-    rich_print(f"📅 Oldest: [magenta]{oldest_date}[/magenta]")
-    rich_print(f"📅 Newest: [magenta]{newest_date}[/magenta]")
+    rich_print(f"Total screenshots: [cyan]{total_count}[/cyan]")
+    rich_print(f"Total size: [green]{total_size / 1024 / 1024:.1f} MB[/green]")
+    rich_print(f"Oldest: [magenta]{oldest_date}[/magenta]")
+    rich_print(f"Newest: [magenta]{newest_date}[/magenta]")
 
     if total_count > 0:
         avg_size = total_size / total_count
-        rich_print(f"📏 Average size: [yellow]{avg_size / 1024:.1f} KB[/yellow]")
+        rich_print(f"Average size: [yellow]{avg_size / 1024:.1f} KB[/yellow]")
 
 
 @app.command()
-def config():
-    """Show current configuration"""
-    config_data = load_config()
+def config(
+    reload: bool = typer.Option(False, "-r", "--reload", help="Force reload config from file"),
+) -> None:
+    """Show current configuration."""
+    manager = ConfigManager()
 
-    if not config_data:
-        rich_print("[yellow]No configuration loaded[/yellow]")
-        return
+    if reload:
+        manager.reload()
+        rich_print("[green]Config reloaded[/green]\n")
+
+    config_data = manager.config
 
     rich_print("[bold]Current Configuration[/bold]\n")
 
-    # Pretty print the config
-    rich_print(json.dumps(config_data, indent=2))
+    # GUI settings
+    rich_print("[bold cyan]GUI Settings[/bold cyan]")
+    rich_print(f"  Window size: {config_data.gui.window_size}")
+    rich_print(f"  Top-left: {config_data.gui.area.top_left}")
+    rich_print(f"  Bottom-right: {config_data.gui.area.bottom_right}")
 
-    # Show interpreted action
-    action_config = config_data.get("macro", {}).get("action", {})
-    action_type = action_config.get("type", "key")
+    # Macro settings
+    rich_print("\n[bold cyan]Macro Settings[/bold cyan]")
+    rich_print(f"  Repetitions: {config_data.macro.repetitions}")
+    rich_print(f"  Delay: {config_data.macro.delay.min}-{config_data.macro.delay.max}s")
+    rich_print(f"  Initial wait: {config_data.macro.initial_wait}s")
 
-    rich_print(f"\n[bold]Action Type:[/bold] {action_type}")
-    if action_type == "key":
-        rich_print(f"[bold]Key:[/bold] {action_config.get('key', 'right')}")
-    elif action_type == "click":
-        position = action_config.get("position", "current mouse position")
-        rich_print(f"[bold]Click Position:[/bold] {position}")
+    # Action settings
+    action = config_data.macro.action
+    rich_print(f"  Action type: {action.type}")
+    if action.type == "key":
+        rich_print(f"  Key: {action.key}")
+    else:
+        rich_print(f"  Click position: {action.position or 'current'}")
+
+    # Screenshot settings
+    rich_print("\n[bold cyan]Screenshot Settings[/bold cyan]")
+    rich_print(f"  Directory: {config_data.screenshot.directory}")
+    rich_print(f"  Format: {config_data.screenshot.format}")
+    rich_print(f"  Prefix: {config_data.screenshot.prefix}")
 
 
-def main():
-    """Entry point for the CLI"""
+def main() -> None:
+    """Entry point for the CLI."""
+    # PyInstaller 번들에서 인자 없이 실행 시 자동으로 GUI 실행
+    if getattr(sys, "frozen", False) and len(sys.argv) == 1:
+        sys.argv.append("run")
     app()
 
 

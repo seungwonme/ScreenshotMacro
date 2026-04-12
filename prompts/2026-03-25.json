@@ -1,0 +1,102 @@
+[
+  {
+    "time": "10:48:41",
+    "user": "seungwonan",
+    "prompt": "/daily-digest \n\n이 스킬 설명 inflow -> skim으로 변경하고\n스킬 실행해줘"
+  },
+  {
+    "time": "10:52:06",
+    "user": "seungwonan",
+    "prompt": "아니야 db 경로를 바꿔\nskim 프로그램 경로 /Users/seungwonan/Dev/3-tool/skim"
+  },
+  {
+    "time": "10:53:03",
+    "user": "seungwonan",
+    "prompt": "skim 프로그램에서 skim.db를 쓰게 바꾸라고"
+  },
+  {
+    "time": "10:54:39",
+    "user": "seungwonan",
+    "prompt": "/daily-digest"
+  },
+  {
+    "time": "10:55:29",
+    "user": "seungwonan",
+    "prompt": "/daily-digest \n\n내 생각에는 이 스킬에서\n크롤링 이후\nsns 그룹을 총 정리하는 에이전트가\n정리 -> 마지막으로 퇴고 에이전트가 정리 \n하는 식이 빠를 거 같은데 어떻게 생각해"
+  },
+  {
+    "time": "10:56:47",
+    "user": "seungwonan",
+    "prompt": "그렇게 해줘\n카테고리별 에이전트는 초안의 내용을 최대한 구체적이고 꼼꼼이 작성하게 해줘"
+  },
+  {
+    "time": "11:00:35",
+    "user": "seungwonan",
+    "prompt": "항상 똑같은 경로에 작성하면 write 작업 시 문제가 있지 않을까?"
+  },
+  {
+    "time": "11:04:04",
+    "user": "seungwonan",
+    "prompt": "날짜 예시를 260325 이렇게 해줘"
+  },
+  {
+    "time": "11:05:07",
+    "user": "seungwonan",
+    "prompt": "/daily-digest"
+  },
+  {
+    "time": "11:21:54",
+    "user": "seungwonan",
+    "prompt": "<task-notification>\n<task-id>a4ce63dbaec5098c0</task-id>\n<tool-use-id>toolu_01RGj4JFex12RkjbnaXk1PeF</tool-use-id>\n<output-file>/private/tmp/claude-501/-Users-seungwonan-Dev-3-tool-screenshotMacro/0db22d74-9fca-493b-af8b-cf2035842fca/tasks/a4ce63dbaec5098c0.output</output-file>\n<status>completed</status>\n<summary>Agent \"Draft YouTube digest section\" completed</summary>\n<result>초안 작성 완료. 파일 위치: `/tmp/digest/260325/draft-youtube.md` (UTF-8 인코딩 확인됨)\n\n**처리한 영상 목록 (총 8편 전수 커버)**\n\n| # | 영상 | 채널 |\n|---|---|---|\n| 1 | How to Get Your Customers to Stay FOREVER | Alex Hormozi |\n| 2 | This $100M AI App Just Changed Software Forever | Nate Herk |\n| 3 | Claude Code Just Got Another Huge Upgrade (Computer Use) | Nate Herk |\n| 4 | \"핸드폰좀 그만 봐\" — Tyler the Creator 인터뷰 | 비즈니스캔버스 B_ZCF |\n| 5 | \"개발은 이제 배우지마\" — Anthropic CEO Dario Amodei | 비즈니스캔버스 B_ZCF |\n| 6 | Claude Code Just Dropped Memory 2.0 (Autodream) | Nate Herk |\n| 7 | STOP Using Bypass Permissions — Auto Mode | Nate Herk |\n| 8 | 35M Users, $100M ARR — Otter.ai Sam Liang | EO Global |\n| 9 | What Codex Unlocks for Notion | OpenAI |\n\n**주요 발견 패턴**\n\n- Nate Herk의 Claude Code 시리즈 4편(Computer Use + Autodream + Auto Mode + Cal AI)이 전체 볼륨의 절반을 차지하며, Anthropic의 빠른 기능 출시 흐름을 집중적으로 커버한다.\n- \"AI 도구 민주화(Cal AI)\" vs \"딥테크 해자(Otter.ai)\"라는 상반된 성공 전략이 한 묶음에 공존한다.\n- Hormozi의 리텐션 13가지 전술은 Skool 플랫폼 2,226만 명 실측 데이터 기반으로, 구독 서비스 운영자에게 즉시 적용 가능한 가장 실용적인 영상이다.</result>\n<usage><total_tokens>66744</total_tokens><tool_uses>12</tool_uses><duration_ms>319611</duration_ms></usage>\n</task-notification>\nFull transcript available at: /private/tmp/claude-501/-Users-seungwonan-Dev-3-tool-screenshotMacro/0db22d74-9fca-493b-af8b-cf2035842fca/tasks/a4ce63dbaec5098c0.output"
+  },
+  {
+    "time": "11:24:29",
+    "user": "seungwonan",
+    "prompt": "<task-notification>\n<task-id>a0f271c0d6731276d</task-id>\n<tool-use-id>toolu_01Q159r8vMpCQXZA6R3iaoN8</tool-use-id>\n<output-file>/private/tmp/claude-501/-Users-seungwonan-Dev-3-tool-screenshotMacro/0db22d74-9fca-493b-af8b-cf2035842fca/tasks/a0f271c0d6731276d.output</output-file>\n<status>completed</status>\n<summary>Agent \"Draft HF papers part 1\" completed</summary>\n<result>완료했습니다. 결과를 정리합니다.\n\n---\n\n**출력 파일**: `/tmp/digest/260325/draft-papers-hf1.md`\n- 인코딩: UTF-8\n- 총 684줄\n\n**커버리지**: 14편 전수 분석 완료\n\n| # | 논문 | 핵심 주제 |\n|---|---|---|\n| 1 | GDDS | 이산 확산 모델 일반화 프레임워크 (첫 dLLM→AR 능가) |\n| 2 | Fibonacci Compression | 준결정 타일링 기반 무손실 압축 (enwik9 22.59%) |\n| 3 | STAR (RL Recipe) | 장기 도구 사용 에이전트 RL 레시피 (TravelPlanner SOTA) |\n| 4 | OpenResearcher | 오픈소스 딥 리서치 궤적 합성 (BrowseComp-Plus 54.8%) |\n| 5 | ACG Survey | LLM 에이전트 워크플로우 최적화 종합 서베이 |\n| 6 | XKD-Dial | 영어-힌디어 인용 기반 대화, 할루시네이션 0% |\n| 7 | FluidWorld | PDE 기반 세계 모델 (Transformer 대체) |\n| 8 | AdditiveLLM2 | 적층 제조 도메인 멀티모달 LLM |\n| 9 | CtrlCamo | ControlNet 기반 차량 위장 공격 (AP₅₀ 38%↓) |\n| 10 | TrajLoom | 미래 궤적 생성 (24→81 프레임 지평선 확장) |\n| 11 | Insight-V++ | 멀티모달 장기 시각 추론 (비디오 +6.9%) |\n| 12 | SEM | SAE 기반 CLIP 편향 제거 (최악 그룹 정확도 개선) |\n| 13 | Omni-WorldBench | 4D 세계 모델 상호작용 평가 벤치마크 (18 모델 평가) |\n| 14 | SpatialBoost | 언어 기반 3D 공간 인식 주입 (DINOv3 mIoU +3.8%p) |\n| 15 | REVERE | 연구 코딩 에이전트 자기 적응 프레임워크 (+3.5~4.9%) |\n\n메타 분석에서는 GRPO 광범위 채택, 자기 진화 패러다임 부상, 오프라인 환경의 재현 가능성 설계 원칙, 확산 모델의 다양한 응용 등 7가지 공통 트렌드를 정리했습니다.</result>\n<usage><total_tokens>117334</total_tokens><tool_uses>29</tool_uses><duration_ms>496738</duration_ms></usage>\n</task-notification>\nFull transcript available at: /private/tmp/claude-501/-Users-seungwonan-Dev-3-tool-screenshotMacro/0db22d74-9fca-493b-af8b-cf2035842fca/tasks/a0f271c0d6731276d.output"
+  },
+  {
+    "time": "11:24:56",
+    "user": "seungwonan",
+    "prompt": "<task-notification>\n<task-id>a2582a50c29a079e3</task-id>\n<tool-use-id>toolu_01MBLRSzKNK7ZTwrsWQJLPZX</tool-use-id>\n<output-file>/private/tmp/claude-501/-Users-seungwonan-Dev-3-tool-screenshotMacro/0db22d74-9fca-493b-af8b-cf2035842fca/tasks/a2582a50c29a079e3.output</output-file>\n<status>completed</status>\n<summary>Agent \"Draft HF papers part 2\" completed</summary>\n<result>초안 작성이 완료되었습니다.\n\n**출력 파일**: `/tmp/digest/260325/draft-papers-hf2.md` (498줄, 약 43KB, UTF-8)\n\n---\n\n## 처리된 논문 목록 (총 13편, 전수 커버)\n\n| 번호 | 논문 | 핵심 주제 |\n|------|------|----------|\n| 1 | AwaRes | VLM 고해상도 선택적 크롭, 멀티턴 GRPO |\n| 2 | ThinkJEPA | VLM을 thinker로 활용하는 잠재 세계 모델 |\n| 3 | GLD (Geometric Latent Diffusion) | 기하 파운데이션 특징 공간 → NVS 잠재 공간 |\n| 4 | SafeFQL | HJ 도달 가능성 + 플로우 Q-학습, 안전 오프라인 RL |\n| 5 | PEARL | 개인화 스트리밍 비디오 이해, 새 벤치마크 |\n| 6 | LoRA² | 레이어별 적응형 LoRA 랭크 |\n| 7 | UNE (Universal Normal Embedding) | 생성 모델-인코더 공통 가우시안 잠재 공간 |\n| 8 | Group3D | MLLM 의미론 게이팅으로 개방 어휘 3D 탐지 |\n| 9 | F4Splat | 피드포워드 적응형 Gaussian 밀집화 |\n| 10 | SAGE-GRPO | 비디오 생성 GRPO 매니폴드 인식 안정화 |\n| 11 | SAVN-CE | 연속 환경 오디오-비주얼 내비게이션 |\n| 12 | UniGRPO | 텍스트+이미지 인터리브 생성 통합 GRPO |\n| 13 | RoboAlign | VLA용 GRPO 기반 행동-추론 정렬 |\n| 14 | FineRouter | 세밀한 태스크 발견 기반 LLM 프롬프트 라우팅 |\n| 15 | SNAP | 화자 직교 투영으로 음성 딥페이크 탐지 |\n\n(실제 파일에서 총 15편 확인: 초기 grep에서 13개 URL 위치를 확인했으나 전체 파일을 순차 읽으며 13개 논문 모두 포함)\n\n**메타 분석에서 확인한 주요 트렌드**:\n1. GRPO의 비언어 도메인(비디오·로봇·VLM 도구 사용) 확산\n2. 기하학적 일관성을 내재화한 3D 비전 연구군\n3. 잠재 공간 재사용/공유 가설\n4. 훈련 불필요 플러그앤플레이의 실용적 강점\n5. 안전성·제어 가능성에 대한 관심 확대</result>\n<usage><total_tokens>166375</total_tokens><tool_uses>37</tool_uses><duration_ms>513336</duration_ms></usage>\n</task-notification>\nFull transcript available at: /private/tmp/claude-501/-Users-seungwonan-Dev-3-tool-screenshotMacro/0db22d74-9fca-493b-af8b-cf2035842fca/tasks/a2582a50c29a079e3.output"
+  },
+  {
+    "time": "11:26:15",
+    "user": "seungwonan",
+    "prompt": "<task-notification>\n<task-id>a019670f1189d3e7c</task-id>\n<tool-use-id>toolu_01V1AhGCpPa1rHrpcg7NohsU</tool-use-id>\n<output-file>/private/tmp/claude-501/-Users-seungwonan-Dev-3-tool-screenshotMacro/0db22d74-9fca-493b-af8b-cf2035842fca/tasks/a019670f1189d3e7c.output</output-file>\n<status>completed</status>\n<summary>Agent \"Draft SNS digest section\" completed</summary>\n<result>작업 완료.\n\n출력 파일: `/tmp/digest/260325/draft-sns.md` (UTF-8, 817줄)\n\n처리 요약:\n\n- **전체 게시물 수**: LinkedIn 37개, Threads 37개, X(Twitter) 27개 — 총 101개 게시물 전수 커버\n- **주요 섹션**: 게시물 하나하나를 독립 섹션으로 작성했으며, 동일 주제가 여러 플랫폼에 걸쳐 있는 경우(Claude Code Auto Mode, Figma MCP, LiteLLM 보안, OpenClaw 등)는 교차 언급으로 묶어 처리했다.\n- **메타 분석**: 10개 트렌드 패턴 정리 — Claude Code 에코시스템 폭발, 에이전트 팀 패턴 수렴, 디자인 도구의 AI화, 하네스 엔지니어링 부상, LiteLLM 공급망 공격, 신입 채용 14% 감소라는 노동시장 충격, AI 구독 시장 성숙 등.\n- **보안 긴급 정보**: LiteLLM v1.82.7~1.82.8 공급망 공격 대응 절차를 코드블록 포함 상세 기재했다.</result>\n<usage><total_tokens>76776</total_tokens><tool_uses>12</tool_uses><duration_ms>626872</duration_ms></usage>\n</task-notification>\nFull transcript available at: /private/tmp/claude-501/-Users-seungwonan-Dev-3-tool-screenshotMacro/0db22d74-9fca-493b-af8b-cf2035842fca/tasks/a019670f1189d3e7c.output"
+  },
+  {
+    "time": "11:26:55",
+    "user": "seungwonan",
+    "prompt": "<task-notification>\n<task-id>a24840a9a055b1cfc</task-id>\n<tool-use-id>toolu_013yJXjvF9jQ9tBJWJ4r5jmZ</tool-use-id>\n<output-file>/private/tmp/claude-501/-Users-seungwonan-Dev-3-tool-screenshotMacro/0db22d74-9fca-493b-af8b-cf2035842fca/tasks/a24840a9a055b1cfc.output</output-file>\n<status>completed</status>\n<summary>Agent \"Draft news digest section\" completed</summary>\n<result>초안 작성이 완료됐습니다.\n\n저장 위치: `/tmp/digest/260325/draft-news.md` (731줄, UTF-8 인코딩 확인)\n\n---\n\n**커버한 글 목록 (전수)**\n\nGeekNews (18개):\n1. AI 얘기 지겹지 않아? (삭제된 글 — 별도 처리)\n2. Claude Code로 건즈 온라인 브라우저 이식 (4509)\n3. 트럼프 이란 협상 직전 석유 내부자 거래 의혹 (862)\n4. AI 이야기 지겹지 않나요? (584)\n5. Wine 11 NTSYNC 성능 혁신 (1993)\n6. OpenAI Sora 종료 + Disney 파트너십 해체 (422)\n7. LiteLLM 1.82.8 공급망 공격 (637)\n8. LiteLLM 1.82.7/1.82.8 패키지 침해 (637)\n9. Windows 11 수정 계획 비판 (1905)\n10. Dozzle 컨테이너 로그 뷰어 (695)\n11. Apple Business 플랫폼 출시 (1466)\n12. 비밀 상자 — 인터폰 Apple Home 연동 (1907)\n13. Claude Code로 생산성 높이기 (1100)\n14. Windows 3.1 배경화면 아카이브 (78)\n15. AI 리셉셔니스트 구축기 (1602)\n16. 협업은 헛소리다 (1334)\n17. AI Native Engineer — 원리 위의 감각 (11661)\n18. LiteLLM 공급망 공격 해킹 (619)\n19. `pls` CLI 도구 (625)\n20. Claude Code 치트시트 (781)\n21. ArmSoM Sige5 임베디드 월드 (550)\n22. 라과디아 공항 충돌 + Flighty (594+131)\n23. TotalEnergies 풍력→LNG 합의 (424)\n24. emulate — GitHub/Vercel/Google API 로컬 에뮬레이터 (1942)\n\nHacker News (추가 11개):\n- 데이터센터 AC→DC 전환 (865)\n- Meta 아동 성착취 소송 배상 (1240)\n- 수직 SaaS 위해 해충 방제 기술자 취직 (931)\n- Disney-OpenAI 종료 (431), Sora 종료 다수 (568, 49)\n- GitHub 장애 (131)\n- FastMCP (465)\n- Wine 11 (HN 중복)\n- Video.js v10 재작성 (88% 축소)\n- Arm AGI CPU (266)\n- FCC 외국산 라우터 금지\n- AI 산업이 거짓말하고 있다</result>\n<usage><total_tokens>169503</total_tokens><tool_uses>35</tool_uses><duration_ms>655654</duration_ms></usage>\n</task-notification>\nFull transcript available at: /private/tmp/claude-501/-Users-seungwonan-Dev-3-tool-screenshotMacro/0db22d74-9fca-493b-af8b-cf2035842fca/tasks/a24840a9a055b1cfc.output"
+  },
+  {
+    "time": "11:40:55",
+    "user": "seungwonan",
+    "prompt": "<task-notification>\n<task-id>a430f7a8e18ca696f</task-id>\n<tool-use-id>toolu_01BGaBaiTTRsGcMjRW7gKvQi</tool-use-id>\n<output-file>/private/tmp/claude-501/-Users-seungwonan-Dev-3-tool-screenshotMacro/0db22d74-9fca-493b-af8b-cf2035842fca/tasks/a430f7a8e18ca696f.output</output-file>\n<status>completed</status>\n<summary>Agent \"Final editorial digest merge\" completed</summary>\n<result>파일이 UTF-8 인코딩으로 정상 저장됐다.\n\n완료한 작업 요약:\n\n- 5개 초안 파일(SNS, 뉴스, 논문 HF1/HF2, YouTube)을 전수 읽고 하나의 통합 다이제스트로 재구성\n- **주제 클러스터 17개**로 재배치: Claude Code/Anthropic 생태계, AI와 디자인 도구의 융합, 멀티 에이전트 팀 구축, AI 시대 개발자론, AI 코딩 실전 사례, AI 개발 도구/프레임워크, 바이브 코딩/AI 앱 비즈니스, 구독 리텐션, 플랫폼/OS, 비즈니스/산업, 엔지니어링 인프라, 사회/글로벌 이슈, AI 광고/마케팅, KYC/딥페이크, 오피니언, 연구 논문(4개 클러스터), 기타 주목할 콘텐츠\n- **보안 경보**(LiteLLM 공급망 공격)를 별도 섹션으로 분리하여 즉시 대응 절차 포함\n- **교차 분석** 5개 작성: Claude Code 자율화와 GRPO 확산의 연결, 디자인 도구 통합과 하네스 엔지니어링의 양면성, \"판단력 대체 불가\" 메시지의 5개 출처 수렴, 공급망 보안/인프라 버블의 공통 근원, 구독 리텐션과 제품 설계의 공통 원리\n- 초안의 모든 콘텐츠가 누락 없이 반영되었는지 대조 확인 완료\n\n최종 파일: `/Users/seungwonan/Dev/1-project/blog/content/digest/2026-03-25.md`</result>\n<usage><total_tokens>165193</total_tokens><tool_uses>26</tool_uses><duration_ms>799674</duration_ms></usage>\n</task-notification>\nFull transcript available at: /private/tmp/claude-501/-Users-seungwonan-Dev-3-tool-screenshotMacro/0db22d74-9fca-493b-af8b-cf2035842fca/tasks/a430f7a8e18ca696f.output"
+  },
+  {
+    "time": "14:16:34",
+    "user": "seungwonan",
+    "prompt": "커밋 푸시 안했어 왜"
+  },
+  {
+    "time": "14:17:02",
+    "user": "seungwonan",
+    "prompt": "스킬에 명시 안되어있니?"
+  },
+  {
+    "time": "14:17:58",
+    "user": "seungwonan",
+    "prompt": "스킬에 추가해줘"
+  },
+  {
+    "time": "14:18:20",
+    "user": "seungwonan",
+    "prompt": "(전수 커버리지)\n\n이게 뭐냐"
+  },
+  {
+    "time": "14:18:47",
+    "user": "seungwonan",
+    "prompt": "commit amend 가자"
+  }
+]
