@@ -66,6 +66,7 @@ struct ContentView: View {
     @State private var lastSessionDir: URL?
     @State private var capturingKey = false
     @State private var keyMonitor: Any?
+    @State private var countdown: Int?
 
     private var running: Bool { macroTask != nil }
 
@@ -552,9 +553,22 @@ struct ContentView: View {
                 }
             }
 
-            // 실시간/테스트 캡처 미리보기
+            // 카운트다운 / 실시간·테스트 캡처 미리보기
             Group {
-                if let lastFrame {
+                if let countdown {
+                    VStack(spacing: 14) {
+                        Text("\(countdown)")
+                            .font(.system(size: 120, weight: .bold, design: .rounded))
+                            .monospacedDigit()
+                            .contentTransition(.numericText(countsDown: true))
+                            .animation(.snappy, value: countdown)
+                            .foregroundStyle(.tint)
+                        Text("곧 시작합니다 — 대상 창을 첫 페이지로 준비하세요")
+                            .font(.title3)
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if let lastFrame {
                     VStack(spacing: 4) {
                         Image(lastFrame, scale: 1, label: Text("live"))
                             .resizable()
@@ -788,6 +802,7 @@ struct ContentView: View {
         macroTask = Task {
             defer {
                 macroTask = nil
+                countdown = nil
                 RunState.shared.stop = nil
                 FloatingHUD.hide()
             }
@@ -804,9 +819,11 @@ struct ContentView: View {
 
                 for s in stride(from: Int(waitNow), through: 1, by: -1) {
                     if Task.isCancelled { break }
+                    countdown = s
                     status = "\(s)초 후 시작 — 대상 창을 첫 페이지로 준비하세요"
                     try await Task.sleep(for: .seconds(1))
                 }
+                countdown = nil
                 for i in 1...repsNow {
                     if Task.isCancelled { break }
                     let window = try await findWindow(selected)
