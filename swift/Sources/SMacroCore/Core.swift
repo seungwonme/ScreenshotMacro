@@ -66,6 +66,18 @@ public func captureImage(window: SCWindow, area: CGRect? = nil) async throws -> 
     return cropped
 }
 
+/// 창 목록용 저해상도 썸네일 (가려진 창·다른 데스크톱의 창도 내용이 보임)
+public func captureThumbnail(window: SCWindow, maxWidth: Int = 320) async throws -> CGImage {
+    let filter = SCContentFilter(desktopIndependentWindow: window)
+    let config = SCStreamConfiguration()
+    let aspect = window.frame.height / max(window.frame.width, 1)
+    config.width = maxWidth
+    config.height = max(1, Int(CGFloat(maxWidth) * aspect))
+    config.showsCursor = false
+    return try await SCScreenshotManager.captureImage(
+        contentFilter: filter, configuration: config)
+}
+
 public func savePNG(_ image: CGImage, to url: URL) throws {
     guard
         let dest = CGImageDestinationCreateWithURL(

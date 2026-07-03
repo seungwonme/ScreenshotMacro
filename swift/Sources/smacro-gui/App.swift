@@ -1,5 +1,6 @@
-// smacro-gui: ScreenshotMacro SwiftUI GUI.
-// 대상 앱 선택 -> 미리보기 캡처 -> 미리보기 위 드래그로 영역 지정 -> 매크로 실행.
+// smacro-gui: ScreenshotMacro SwiftUI GUI (위저드형).
+// 상단 스텝 바(완료 시 초록 체크) + 단계별 탭:
+//   1 대상 창(썸네일 그리드) -> 2 캡처 영역(드래그) -> 3 매크로 설정 -> 4 실행(테스트/진행)
 // 매크로가 도는 동안 대상 앱이 백그라운드여도 캡처·키 전송이 동작한다.
 
 import AppKit
@@ -23,23 +24,38 @@ struct SMacroApp: App {
     }
 }
 
+struct TargetWindow: Identifiable, Hashable {
+    let id: CGWindowID
+    let pid: pid_t
+    let appName: String
+    let title: String
+
+    var icon: NSImage? { NSRunningApplication(processIdentifier: pid)?.icon }
+}
+
 struct ContentView: View {
     // 설정 (UserDefaults 자동 저장 — Python 버전의 config.json 역할)
-    @AppStorage("appName") private var appName = ""
+    @AppStorage("appName") private var savedAppName = ""
     @AppStorage("reps") private var reps = 100
     @AppStorage("key") private var key = "right"
     @AppStorage("waitSeconds") private var waitSeconds = 5.0
     @AppStorage("delayMin") private var delayMin = 1.0
     @AppStorage("delayMax") private var delayMax = 3.0
+    @AppStorage("fullWindow") private var fullWindow = true
     @AppStorage("areaString") private var areaString = ""  // "x,y,w,h" (창 기준 포인트)
     @AppStorage("outputBase") private var outputBase =
         NSString(string: "~/Pictures/ScreenshotMacro").expandingTildeInPath
 
-    @State private var runningApps: [String] = []
+    @State private var currentStep = 1
+    @State private var targets: [TargetWindow] = []
+    @State private var thumbs: [CGWindowID: CGImage] = [:]
+    @State private var selected: TargetWindow?
     @State private var preview: CGImage?
-    @State private var previewPointSize: CGSize = .zero  // 미리보기 창의 포인트 크기
-    @State private var dragCurrent: CGRect?  // 미리보기 표시 좌표계의 드래그 사각형
-    @State private var status = "대상 앱을 선택하고 미리보기로 영역을 지정하세요"
+    @State private var previewPointSize: CGSize = .zero
+    @State private var dragCurrent: CGRect?
+    @State private var lastFrame: CGImage?  // 실행/테스트 중 방금 저장된 컷
+    @State private var testPassed = false
+    @State private var status = ""
     @State private var progress = 0
     @State private var macroTask: Task<Void, Never>?
     @State private var lastSessionDir: URL?
@@ -52,43 +68,276 @@ struct ContentView: View {
         return CGRect(x: p[0], y: p[1], width: p[2], height: p[3])
     }
 
-    var body: some View {
-        HSplitView {
-            settingsPane
-                .frame(minWidth: 300, maxWidth: 360)
-            previewPane
-                .frame(minWidth: 400, maxWidth: .infinity, maxHeight: .infinity)
+    private let stepTitles = ["대상 창", "캡처 영역", "매크로 설정", "실행"]
+
+    private func stepComplete(_ i: Int) -> Bool {
+        switch i {
+        case 1: return selected != nil
+        case 2: return preview != nil && (fullWindow || area != nil)
+        case 3: return reps >= 1 && delayMax >= max(0, delayMin) && !outputBase.isEmpty
+        default: return testPassed
         }
-        .frame(minWidth: 760, minHeight: 480)
-        .onAppear(perform: refreshApps)
     }
 
-    // MARK: - 좌측: 설정
+    var body: some View {
+        VStack(spacing: 0) {
+            stepBar
+                .padding(.vertical, 12)
+            Divider()
+            Group {
+                switch currentStep {
+                case 1: stepTargets
+                case 2: stepArea
+                case 3: stepSettings
+                default: stepRun
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            Divider()
+            footer
+                .padding(10)
+        }
+        .frame(minWidth: 800, minHeight: 600)
+        .task { await refreshTargets() }
+    }
 
-    private var settingsPane: some View {
+    // MARK: - 상단 스텝 바
+
+    private var stepBar: some View {
+        HStack(spacing: 0) {
+            ForEach(1...4, id: \.self) { i in
+                Button {
+                    currentStep = i
+                } label: {
+                    HStack(spacing: 6) {
+                        if stepComplete(i) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.system(size: 20))
+                                .foregroundStyle(.green)
+                        } else {
+                            Text("\(i)")
+                                .font(.caption.bold())
+                                .foregroundStyle(.white)
+                                .frame(width: 20, height: 20)
+                                .background(
+                                    Circle().fill(
+                                        currentStep == i
+                                            ? Color.accentColor : Color.gray.opacity(0.4)))
+                        }
+                        Text(stepTitles[i - 1])
+                            .fontWeight(currentStep == i ? .semibold : .regular)
+                            .foregroundStyle(currentStep == i ? .primary : .secondary)
+                    }
+                }
+                .buttonStyle(.plain)
+                if i < 4 {
+                    Rectangle()
+                        .fill(stepComplete(i) ? Color.green.opacity(0.6) : Color.secondary.opacity(0.3))
+                        .frame(width: 32, height: 2)
+                        .padding(.horizontal, 8)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private var footer: some View {
+        HStack {
+            if !status.isEmpty {
+                Text(status)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .textSelection(.enabled)
+            }
+            Spacer()
+            if currentStep > 1 {
+                Button("이전") { currentStep -= 1 }
+            }
+            if currentStep < 4 {
+                Button("다음") { currentStep += 1 }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!stepComplete(currentStep))
+            }
+        }
+    }
+
+    // MARK: - Step 1: 대상 창 (썸네일 그리드)
+
+    private var stepTargets: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("캡처할 창을 선택하세요. 가려진 창, 다른 데스크톱의 창도 그대로 보입니다.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button {
+                    Task { await refreshTargets() }
+                } label: {
+                    Label("새로고침", systemImage: "arrow.clockwise")
+                }
+            }
+            .padding(12)
+            ScrollView {
+                LazyVGrid(
+                    columns: [GridItem(.adaptive(minimum: 210), spacing: 12)], spacing: 12
+                ) {
+                    ForEach(targets) { t in
+                        targetCell(t)
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.bottom, 12)
+            }
+        }
+        .disabled(running)
+    }
+
+    private func targetCell(_ t: TargetWindow) -> some View {
+        VStack(spacing: 6) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 6).fill(.quaternary.opacity(0.5))
+                if let img = thumbs[t.id] {
+                    Image(img, scale: 1, label: Text(t.appName))
+                        .resizable()
+                        .scaledToFit()
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                } else {
+                    ProgressView().controlSize(.small)
+                }
+            }
+            .frame(height: 130)
+            HStack(spacing: 6) {
+                if let icon = t.icon {
+                    Image(nsImage: icon).resizable().frame(width: 18, height: 18)
+                }
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(t.appName).font(.caption.bold()).lineLimit(1)
+                    Text(t.title.isEmpty ? "(제목 없음)" : t.title)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 0)
+            }
+        }
+        .padding(8)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(selected == t ? Color.accentColor.opacity(0.12) : Color.clear))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(
+                    selected == t ? Color.accentColor : Color.secondary.opacity(0.25),
+                    lineWidth: selected == t ? 2 : 1))
+        .contentShape(Rectangle())
+        .onTapGesture { select(t) }
+    }
+
+    // MARK: - Step 2: 캡처 영역
+
+    private var stepArea: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 12) {
+                Picker("", selection: $fullWindow) {
+                    Text("창 전체").tag(true)
+                    Text("영역 지정").tag(false)
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 180)
+                if !fullWindow {
+                    areaField("x", 0)
+                    areaField("y", 1)
+                    areaField("w", 2)
+                    areaField("h", 3)
+                }
+                Spacer()
+                Button {
+                    Task { await capturePreview() }
+                } label: {
+                    Label("다시 캡처", systemImage: "camera")
+                }
+                .disabled(selected == nil)
+            }
+            .padding(12)
+            if preview != nil {
+                previewEditor
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 12)
+            } else {
+                ContentUnavailableView(
+                    "미리보기 없음", systemImage: "macwindow",
+                    description: Text("1단계에서 대상 창을 먼저 선택하세요"))
+            }
+        }
+        .disabled(running)
+    }
+
+    private var previewEditor: some View {
+        GeometryReader { geo in
+            if let preview {
+                let fit = fittedRect(image: preview, in: geo.size)
+                ZStack(alignment: .topLeading) {
+                    Image(preview, scale: 1, label: Text("preview"))
+                        .resizable()
+                        .frame(width: fit.width, height: fit.height)
+                        .offset(x: fit.minX, y: fit.minY)
+                    if !fullWindow, let rect = selectionRect(in: fit) {
+                        // 선택 밖은 어둡게 — 어디가 찍히는지 즉시 보이게
+                        Path { p in
+                            p.addRect(CGRect(origin: .zero, size: geo.size))
+                            p.addRect(rect)
+                        }
+                        .fill(.black.opacity(0.45), style: FillStyle(eoFill: true))
+                        Rectangle()
+                            .stroke(.orange, lineWidth: 2)
+                            .frame(width: rect.width, height: rect.height)
+                            .offset(x: rect.minX, y: rect.minY)
+                    }
+                }
+                .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
+                .contentShape(Rectangle())
+                .gesture(dragGesture(fit: fit))
+            }
+        }
+    }
+
+    private func areaField(_ label: String, _ index: Int) -> some View {
+        HStack(spacing: 2) {
+            Text(label).font(.caption).foregroundStyle(.secondary)
+            TextField(
+                label,
+                text: Binding(
+                    get: {
+                        let p = areaString.split(separator: ",").map(String.init)
+                        return p.count == 4 ? p[index] : ""
+                    },
+                    set: { newValue in
+                        var p = areaString.split(separator: ",").map(String.init)
+                        if p.count != 4 { p = ["0", "0", "0", "0"] }
+                        p[index] = newValue
+                        areaString = p.joined(separator: ",")
+                    })
+            )
+            .font(.caption.monospaced())
+            .frame(width: 52)
+        }
+    }
+
+    // MARK: - Step 3: 매크로 설정
+
+    private var stepSettings: some View {
         Form {
-            Section("대상 앱") {
-                Picker("앱", selection: $appName) {
-                    Text("선택...").tag("")
-                    ForEach(runningApps, id: \.self) { Text($0).tag($0) }
-                }
-                HStack {
-                    Button("새로고침") { refreshApps() }
-                    Button("미리보기 캡처") { Task { await capturePreview() } }
-                        .disabled(appName.isEmpty)
-                }
-            }
-
-            Section("영역 (창 기준, 비우면 창 전체)") {
-                TextField("x,y,w,h", text: $areaString)
-                    .font(.body.monospaced())
-                Button("영역 초기화") { areaString = "" }
-                    .disabled(areaString.isEmpty)
-            }
-
             Section("매크로") {
-                Stepper("반복: \(reps)회", value: $reps, in: 1...10000, step: 10)
-                Picker("키", selection: $key) {
+                HStack {
+                    Text("반복")
+                    TextField("", value: $reps, format: .number).frame(width: 70)
+                    Text("회")
+                    Spacer()
+                    Text("예상 소요 \(etaText(from: reps))")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Picker("넘김 키", selection: $key) {
                     ForEach(keyCodes.keys.sorted(), id: \.self) { Text($0).tag($0) }
                 }
                 HStack {
@@ -97,83 +346,121 @@ struct ContentView: View {
                     Text("초")
                 }
                 HStack {
-                    Text("딜레이")
+                    Text("캡처 간 딜레이")
                     TextField("", value: $delayMin, format: .number).frame(width: 50)
                     Text("~")
                     TextField("", value: $delayMax, format: .number).frame(width: 50)
-                    Text("초")
+                    Text("초 (랜덤)")
                 }
             }
-
             Section("저장 위치") {
-                TextField("", text: $outputBase).font(.caption.monospaced())
-            }
-
-            Section {
-                if running {
-                    Button("중지 (\(progress)/\(reps))", role: .destructive) {
-                        macroTask?.cancel()
+                HStack {
+                    TextField("", text: $outputBase).font(.caption.monospaced())
+                    Button {
+                        NSWorkspace.shared.open(URL(fileURLWithPath: outputBase))
+                    } label: {
+                        Image(systemName: "folder")
                     }
-                    .frame(maxWidth: .infinity)
-                } else {
-                    Button("매크로 시작") { startMacro() }
-                        .keyboardShortcut(.defaultAction)
-                        .frame(maxWidth: .infinity)
-                        .disabled(appName.isEmpty)
                 }
-                if let dir = lastSessionDir {
-                    Button("결과 폴더 열기") { NSWorkspace.shared.open(dir) }
-                        .frame(maxWidth: .infinity)
-                }
+                Text("실행할 때마다 01, 02, ... 세션 폴더가 자동 생성됩니다")
+                    .font(.caption).foregroundStyle(.tertiary)
             }
-
-            Text(status)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
         }
         .formStyle(.grouped)
+        .disabled(running)
     }
 
-    // MARK: - 우측: 미리보기 + 드래그 영역 선택
+    // MARK: - Step 4: 실행
 
-    private var previewPane: some View {
-        Group {
-            if let preview {
-                GeometryReader { geo in
-                    let fit = fittedRect(image: preview, in: geo.size)
-                    ZStack(alignment: .topLeading) {
-                        Image(preview, scale: 1, label: Text("preview"))
-                            .resizable()
-                            .frame(width: fit.width, height: fit.height)
-                            .offset(x: fit.minX, y: fit.minY)
-                        if let rect = selectionRect(in: fit) {
-                            Rectangle()
-                                .stroke(.orange, lineWidth: 2)
-                                .background(Rectangle().fill(.orange.opacity(0.15)))
-                                .frame(width: rect.width, height: rect.height)
-                                .offset(x: rect.minX, y: rect.minY)
+    private var stepRun: some View {
+        VStack(spacing: 12) {
+            // 설정 요약
+            HStack(spacing: 14) {
+                summaryItem("macwindow", selected?.appName ?? "창 미선택")
+                summaryItem(
+                    "crop", fullWindow ? "창 전체" : (area != nil ? areaString : "영역 미지정"))
+                summaryItem("repeat", "\(reps)회 · \(key) 키")
+                summaryItem("clock", "약 \(etaText(from: reps))")
+            }
+            .padding(.top, 12)
+
+            if running {
+                ProgressView(value: Double(progress), total: Double(max(reps, 1)))
+                    .padding(.horizontal, 16)
+                HStack {
+                    Text("\(progress)/\(reps) — 남은 시간 약 \(etaText(from: reps - progress))")
+                        .font(.callout)
+                    Button("중지", role: .destructive) { macroTask?.cancel() }
+                }
+            } else {
+                HStack(spacing: 10) {
+                    Button {
+                        testOnce()
+                    } label: {
+                        Label("테스트 1회", systemImage: "checkmark.seal")
+                    }
+                    .disabled(selected == nil)
+                    .help("캡처 1장 + 키 1회로 설정을 확인합니다 (파일 저장 안 함)")
+                    Button {
+                        startMacro()
+                    } label: {
+                        Label("매크로 시작", systemImage: "play.fill")
+                    }
+                    .keyboardShortcut(.defaultAction)
+                    .buttonStyle(.borderedProminent)
+                    .disabled(selected == nil)
+                    if let dir = lastSessionDir {
+                        Button {
+                            NSWorkspace.shared.open(dir)
+                        } label: {
+                            Label("결과 폴더", systemImage: "folder")
                         }
                     }
-                    .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
-                    .contentShape(Rectangle())
-                    .gesture(dragGesture(fit: fit))
                 }
-                .padding(8)
-            } else {
-                ContentUnavailableView(
-                    "미리보기 없음", systemImage: "photo",
-                    description: Text("대상 앱을 고르고 '미리보기 캡처'를 누르면\n여기서 드래그로 캡처 영역을 지정할 수 있습니다"))
             }
+
+            // 실시간/테스트 캡처 미리보기
+            Group {
+                if let lastFrame {
+                    VStack(spacing: 4) {
+                        Image(lastFrame, scale: 1, label: Text("live"))
+                            .resizable()
+                            .scaledToFit()
+                            .clipShape(RoundedRectangle(cornerRadius: 6))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 6)
+                                    .stroke(.separator, lineWidth: 1))
+                        Text(running ? "방금 저장된 컷 (실시간)" : "테스트 캡처 결과")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                } else {
+                    ContentUnavailableView(
+                        "테스트 1회로 설정을 확인하세요", systemImage: "checkmark.seal",
+                        description: Text("캡처 1장과 키 1회를 보내 결과를 여기서 보여줍니다.\n확인 후 매크로를 시작하면 도는 동안 다른 작업을 하셔도 됩니다."))
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(.horizontal, 16)
+            .padding(.bottom, 8)
         }
     }
+
+    private func summaryItem(_ icon: String, _ text: String) -> some View {
+        Label(text, systemImage: icon)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+    }
+
+    // MARK: - 좌표 계산
 
     /// 이미지가 scaledToFit으로 표시될 사각형 (컨테이너 좌표)
     private func fittedRect(image: CGImage, in container: CGSize) -> CGRect {
         let iw = CGFloat(image.width), ih = CGFloat(image.height)
         let scale = min(container.width / iw, container.height / ih)
         let w = iw * scale, h = ih * scale
-        return CGRect(x: (container.width - w) / 2, y: (container.height - h) / 2, width: w, height: h)
+        return CGRect(
+            x: (container.width - w) / 2, y: (container.height - h) / 2, width: w, height: h)
     }
 
     /// 저장된 area(창 포인트 좌표)를 미리보기 표시 좌표로 환산
@@ -203,86 +490,160 @@ struct ContentView: View {
                 guard let r = dragCurrent, previewPointSize.width > 0,
                     r.width > 4, r.height > 4
                 else { return }
-                // 표시 좌표 -> 창 포인트 좌표
                 let sx = previewPointSize.width / fit.width
                 let sy = previewPointSize.height / fit.height
                 let x = (r.minX - fit.minX) * sx
                 let y = (r.minY - fit.minY) * sy
                 areaString = String(
                     format: "%.0f,%.0f,%.0f,%.0f", x, y, r.width * sx, r.height * sy)
-                status = "영역 지정: \(areaString) (창 기준 포인트)"
+                fullWindow = false
+                testPassed = false
+                status = "영역 지정 완료 — 4단계에서 '테스트 1회'로 확인하세요"
             }
     }
 
     // MARK: - Actions
 
-    private func refreshApps() {
-        runningApps = NSWorkspace.shared.runningApplications
-            .filter { $0.activationPolicy == .regular }
-            .compactMap { $0.localizedName }
-            .sorted()
-    }
-
-    private func capturePreview() async {
+    private func refreshTargets() async {
         do {
             try checkScreenRecording()
-            let app = try resolveApp(named: appName)
-            let window = try await frontWindow(ofPid: app.processIdentifier)
-            preview = try await captureImage(window: window)
-            previewPointSize = window.frame.size
-            status = "미리보기: \(Int(window.frame.width))x\(Int(window.frame.height))pt — 드래그로 영역 지정"
+            let content = try await SCShareableContent.excludingDesktopWindows(
+                false, onScreenWindowsOnly: true)
+            let me = ProcessInfo.processInfo.processIdentifier
+            let windows = content.windows.filter { w in
+                guard let app = w.owningApplication else { return false }
+                return app.processID != me && w.isOnScreen
+                    && w.frame.width > 50 && w.frame.height > 50
+                    && !app.applicationName.isEmpty
+            }
+            targets = windows.map {
+                TargetWindow(
+                    id: $0.windowID, pid: $0.owningApplication!.processID,
+                    appName: $0.owningApplication!.applicationName, title: $0.title ?? "")
+            }
+            .sorted { ($0.appName, $0.title) < ($1.appName, $1.title) }
+            if selected == nil, let prev = targets.first(where: { $0.appName == savedAppName }) {
+                selected = prev
+                Task { await capturePreview() }
+            }
+            // 썸네일은 뒤에서 순차 로드 (그리드가 먼저 뜨고 채워짐)
+            for w in windows {
+                thumbs[w.windowID] = try? await captureThumbnail(window: w)
+            }
         } catch {
             status = "오류: \(error)"
         }
     }
 
+    private func select(_ t: TargetWindow) {
+        selected = t
+        savedAppName = t.appName
+        testPassed = false
+        Task {
+            await capturePreview()
+            currentStep = 2
+        }
+    }
+
+    private func capturePreview() async {
+        guard let selected else { return }
+        do {
+            let window = try await findWindow(selected)
+            preview = try await captureImage(window: window)
+            previewPointSize = window.frame.size
+            status = "\(selected.appName) — \(Int(window.frame.width))x\(Int(window.frame.height))pt"
+        } catch {
+            status = "오류: \(error)"
+        }
+    }
+
+    private func findWindow(_ t: TargetWindow) async throws -> SCWindow {
+        let content = try await SCShareableContent.excludingDesktopWindows(
+            false, onScreenWindowsOnly: true)
+        if let w = content.windows.first(where: { $0.windowID == t.id }) { return w }
+        return try await frontWindow(ofPid: t.pid)  // 창이 닫혔으면 같은 앱의 최대 창으로 폴백
+    }
+
+    private func testOnce() {
+        guard let selected else { return }
+        macroTask = Task {
+            defer { macroTask = nil }
+            do {
+                try checkScreenRecording()
+                try checkAccessibility()
+                let window = try await findWindow(selected)
+                lastFrame = try await captureImage(
+                    window: window, area: fullWindow ? nil : area)
+                try sendKey(key, toPid: selected.pid)
+                testPassed = true
+                status = "테스트 OK — 캡처 1장 + '\(key)' 키 1회 전송됨. 아래 결과를 확인하고 시작하세요"
+            } catch {
+                testPassed = false
+                status = "테스트 실패: \(error)"
+            }
+        }
+    }
+
     private func startMacro() {
+        guard let selected else { return }
         let repsNow = reps
         let keyNow = key
-        let waitNow = waitSeconds
-        let dMin = delayMin
-        let dMax = max(delayMin, delayMax)
-        let areaNow = area
+        let waitNow = max(0, waitSeconds)
+        let dMin = max(0, delayMin)
+        let dMax = max(dMin, delayMax)
+        let areaNow = fullWindow ? nil : area
         let baseNow = outputBase
-        let appNow = appName
 
         macroTask = Task {
             defer { macroTask = nil }
             do {
                 try checkScreenRecording()
                 try checkAccessibility()
-                let app = try resolveApp(named: appNow)
-                let pid = app.processIdentifier
                 let sessionDir = try nextSessionDir(base: baseNow)
                 lastSessionDir = sessionDir
                 progress = 0
+                lastFrame = nil
 
-                status = "\(Int(waitNow))초 후 시작 -> \(sessionDir.path)"
-                try await Task.sleep(for: .seconds(waitNow))
+                for s in stride(from: Int(waitNow), through: 1, by: -1) {
+                    if Task.isCancelled { break }
+                    status = "\(s)초 후 시작 — 대상 창을 첫 페이지로 준비하세요"
+                    try await Task.sleep(for: .seconds(1))
+                }
                 for i in 1...repsNow {
                     if Task.isCancelled { break }
-                    let window = try await frontWindow(ofPid: pid)
+                    let window = try await findWindow(selected)
                     let image = try await captureImage(window: window, area: areaNow)
                     try savePNG(
                         image,
                         to: sessionDir.appendingPathComponent(
                             String(format: "screenshot_%03d.png", i)))
-                    try sendKey(keyNow, toPid: pid)
+                    try sendKey(keyNow, toPid: selected.pid)
+                    lastFrame = image
                     progress = i
-                    status = "진행 중 \(i)/\(repsNow) — 다른 작업을 하셔도 됩니다"
+                    status = "진행 중 — 다른 작업을 하셔도 됩니다"
                     if i < repsNow {
                         try await Task.sleep(for: .seconds(Double.random(in: dMin...dMax)))
                     }
                 }
-                status = Task.isCancelled
-                    ? "중지됨 (\(progress)/\(repsNow)) -> \(sessionDir.path)"
-                    : "완료: \(repsNow)장 -> \(sessionDir.path)"
-                if !Task.isCancelled { NSWorkspace.shared.open(sessionDir) }
+                if Task.isCancelled {
+                    status = "중지됨 — \(progress)장 저장: \(sessionDir.path)"
+                } else {
+                    status = "완료 — \(progress)장 저장: \(sessionDir.path)"
+                    NSSound(named: "Glass")?.play()
+                    NSWorkspace.shared.open(sessionDir)
+                }
             } catch is CancellationError {
                 status = "중지됨 (\(progress)장 저장됨)"
             } catch {
-                status = "오류: \(error)"
+                status = "오류 (\(progress)장까지 저장됨): \(error)"
+                NSSound(named: "Basso")?.play()
             }
         }
+    }
+
+    private func etaText(from remaining: Int) -> String {
+        let avg = (max(0, delayMin) + max(max(0, delayMin), delayMax)) / 2 + 0.4  // +캡처 시간
+        let total = Int(Double(max(0, remaining)) * avg)
+        return total >= 60 ? "\(total / 60)분 \(total % 60)초" : "\(total)초"
     }
 }
