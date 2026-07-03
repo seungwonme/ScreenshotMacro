@@ -104,13 +104,23 @@ public func sendKey(_ name: String, toPid pid: pid_t) throws {
 }
 
 /// 창 좌상단 기준 포인트 좌표를 현재 창 위치의 화면 좌표로 환산해 좌클릭 전송.
-/// postToPid라 대상 앱이 백그라운드여도 동작하고, 창이 이동해도 상대 좌표가 유지된다.
-public func sendClick(at windowPoint: CGPoint, window: SCWindow, toPid pid: pid_t) throws {
+/// 백그라운드 창의 컨트롤은 합성 첫 클릭을 무시하는 경우가 많아(acceptsFirstMouse)
+/// 1) 해당 좌표의 AX 요소에 AXPress (포커스 불필요, 버튼류에 확실)
+/// 2) 실패 시 CGEvent postToPid (mouseMoved로 hover 갱신 후 down/up)
+/// 순서로 시도한다. 반환값은 실제 사용된 방식 ("AXPress" | "CGEvent").
+@discardableResult
+public func sendClick(at windowPoint: CGPoint, window: SCWindow, toPid pid: pid_t) throws -> String {
     let global = CGPoint(
         x: window.frame.origin.x + windowPoint.x,
         y: window.frame.origin.y + windowPoint.y)
+
+    if axPress(at: global, pid: pid) { return "AXPress" }
+
     let source = CGEventSource(stateID: .hidSystemState)
     guard
+        let moved = CGEvent(
+            mouseEventSource: source, mouseType: .mouseMoved,
+            mouseCursorPosition: global, mouseButton: .left),
         let down = CGEvent(
             mouseEventSource: source, mouseType: .leftMouseDown,
             mouseCursorPosition: global, mouseButton: .left),
@@ -120,10 +130,28 @@ public func sendClick(at windowPoint: CGPoint, window: SCWindow, toPid pid: pid_
     else { throw die("CGEvent 생성 실패") }
     down.setIntegerValueField(.mouseEventClickState, value: 1)
     up.setIntegerValueField(.mouseEventClickState, value: 1)
+    moved.postToPid(pid)
+    usleep(20_000)
     down.postToPid(pid)
     usleep(20_000)
     up.postToPid(pid)
     usleep(50_000)  // 키와 동일: 종료 직전 이벤트 flush 유실 방지
+    return "CGEvent"
+}
+
+/// 화면 좌표에 있는 대상 앱의 AX 요소를 찾아 AXPress. 성공 여부 반환.
+private func axPress(at global: CGPoint, pid: pid_t) -> Bool {
+    let appEl = AXUIElementCreateApplication(pid)
+    var el: AXUIElement?
+    guard
+        AXUIElementCopyElementAtPosition(appEl, Float(global.x), Float(global.y), &el)
+            == .success, let el
+    else { return false }
+    var actions: CFArray?
+    guard AXUIElementCopyActionNames(el, &actions) == .success,
+        let list = actions as? [String], list.contains(kAXPressAction)
+    else { return false }
+    return AXUIElementPerformAction(el, kAXPressAction as CFString) == .success
 }
 
 // MARK: - Permissions

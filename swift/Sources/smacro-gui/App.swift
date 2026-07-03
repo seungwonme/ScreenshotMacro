@@ -676,9 +676,9 @@ struct ContentView: View {
                 let window = try await findWindow(selected)
                 lastFrame = try await captureImage(
                     window: window, area: fullWindow ? nil : area)
-                try performAction(window: window, pid: selected.pid)
+                let method = try performAction(window: window, pid: selected.pid)
                 testPassed = true
-                status = "테스트 OK — 캡처 1장 + \(actionLabel) 1회 전송됨. 아래 결과를 확인하고 시작하세요"
+                status = "테스트 OK — 캡처 1장 + \(actionLabel) 전송(방식: \(method)). 대상 앱이 실제로 반응했는지 확인하세요"
             } catch {
                 testPassed = false
                 status = "테스트 실패: \(error)"
@@ -686,13 +686,15 @@ struct ContentView: View {
         }
     }
 
-    /// 설정된 페이지 넘김 동작(키 또는 클릭)을 대상 앱에 전송
-    private func performAction(window: SCWindow, pid: pid_t) throws {
+    /// 설정된 페이지 넘김 동작(키 또는 클릭)을 대상 앱에 전송. 사용된 방식 문자열 반환.
+    @discardableResult
+    private func performAction(window: SCWindow, pid: pid_t) throws -> String {
         if actionType == "click" {
             guard let clickPoint else { throw die("클릭 위치가 지정되지 않았습니다 (3단계)") }
-            try sendClick(at: clickPoint, window: window, toPid: pid)
+            return try sendClick(at: clickPoint, window: window, toPid: pid)
         } else {
             try sendKey(key, toPid: pid)
+            return "키 입력"
         }
     }
 
