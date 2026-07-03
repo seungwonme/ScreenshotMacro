@@ -2,6 +2,7 @@
 # smacro-proto 엔드투엔드 검증 (화면 기록 + 손쉬운 사용 권한이 있는 터미널에서 실행)
 # 검증: (1) 포커스 없는 윈도우 캡처 (2) 포커스 없는 앱으로의 키 전송
 set -u
+export SWIFT_BACKTRACE=enable=no  # 크래시 시 대화형 백트레이서가 스크립트를 멈추지 않게
 
 cd "$(dirname "$0")/../swift" || exit 1
 BIN=./.build/debug/smacro-proto

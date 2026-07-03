@@ -127,6 +127,9 @@ struct SMacro {
     }
 
     static func run() async throws {
+        // CLI(비 앱 번들)에서는 window server 연결이 자동 초기화되지 않아
+        // SCContentFilter 생성 시 CGS_REQUIRE_INIT assert로 크래시한다. CG API 선호출로 초기화.
+        _ = CGMainDisplayID()
         let args = Array(CommandLine.arguments.dropFirst())
         switch args.first {
         case "list":
