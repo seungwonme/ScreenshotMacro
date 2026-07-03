@@ -69,7 +69,9 @@ func sendKey(_ name: String, toPid pid: pid_t) throws {
         let up = CGEvent(keyboardEventSource: source, virtualKey: code, keyDown: false)
     else { throw die("CGEvent 생성 실패") }
     down.postToPid(pid)
+    usleep(20_000)  // down/up 무간격 연타 시 대상 앱에서 이벤트가 드롭될 수 있음
     up.postToPid(pid)
+    usleep(50_000)  // 프로세스 즉시 종료 시 마지막 이벤트가 flush 전에 유실되는 것 방지
 }
 
 // MARK: - Permissions
