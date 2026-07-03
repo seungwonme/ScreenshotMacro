@@ -66,7 +66,7 @@ swift run smacro-proto macro --app 미리보기 --reps 300 --key right \
 swift run smacro-proto captures                         # 세션별 캡처 현황
 swift run smacro-proto stats                            # 전체 통계
 swift run smacro-proto clean [-f]                       # 캡처 전체 휴지통 이동 (-f: 확인 생략)
-swift run smacro-proto find-duplicates                 # 중복 캡처 탐지 (바이트 완전 동일)
+swift run smacro-proto find-duplicates [--delete] [-f] # 중복 캡처 탐지 (--delete: 그룹당 1장만 남기고 휴지통)
 ```
 
 ## Project Structure
