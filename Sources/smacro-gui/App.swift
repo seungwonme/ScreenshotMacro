@@ -68,6 +68,14 @@ struct ContentView: View {
     @State private var keyMonitor: Any?
     @State private var countdown: Int?
 
+    // 중복 정리 시트
+    @State private var showDuplicates = false
+    @State private var dupScanDir: URL?
+    @State private var dupGroups: [[URL]] = []
+    @State private var dupSelected: Set<URL> = []  // 삭제할 파일들 (전체 선택이 기본)
+    @State private var dupThumbs: [URL: CGImage] = [:]
+    @State private var dupStatus = ""
+
     private var running: Bool { macroTask != nil }
 
     private var area: CGRect? {
@@ -121,6 +129,9 @@ struct ContentView: View {
         }
         .frame(minWidth: 800, minHeight: 600)
         .task { await refreshTargets() }
+        .sheet(isPresented: $showDuplicates) {
+            duplicatesSheet
+        }
     }
 
     // MARK: - 상단 스텝 바
@@ -550,6 +561,12 @@ struct ContentView: View {
                             Label("결과 폴더", systemImage: "folder")
                         }
                     }
+                    Button {
+                        openDuplicates(in: lastSessionDir ?? URL(fileURLWithPath: outputBase))
+                    } label: {
+                        Label("중복 정리", systemImage: "square.on.square.dashed")
+                    }
+                    .help("바이트 완전 동일한 중복 캡처를 미리보기로 확인하고 삭제합니다")
                 }
             }
 
@@ -862,6 +879,189 @@ struct ContentView: View {
         let avg = (randomDelay ? (dMin + max(dMin, delayMax)) / 2 : dMin) + 0.4  // +캡처 시간
         let total = Int(Double(max(0, remaining)) * avg)
         return total >= 60 ? "\(total / 60)분 \(total % 60)초" : "\(total)초"
+    }
+
+    // MARK: - 중복 정리 시트
+
+    /// 각 그룹에서 첫 장(유지)을 뺀 나머지 = 삭제 가능한 중복들
+    private var deletableDups: [URL] { dupGroups.flatMap { $0.dropFirst() } }
+
+    private var allDupsSelected: Bool {
+        !deletableDups.isEmpty && dupSelected.count == deletableDups.count
+    }
+
+    private func openDuplicates(in dir: URL) {
+        scanDuplicates(dir)
+        showDuplicates = true
+    }
+
+    private func scanDuplicates(_ dir: URL) {
+        dupScanDir = dir
+        dupGroups = duplicateGroups(in: dir.path)
+        dupSelected = Set(deletableDups)  // 전체 선택이 기본 ON
+        dupStatus = ""
+    }
+
+    private func toggleSelectAll() {
+        dupSelected = allDupsSelected ? [] : Set(deletableDups)
+    }
+
+    private func pickDuplicateFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.directoryURL = dupScanDir ?? URL(fileURLWithPath: outputBase)
+        if panel.runModal() == .OK, let url = panel.url { scanDuplicates(url) }
+    }
+
+    /// 썸네일은 원본 풀해상도 대신 축소본을 메인 밖에서 디코드해 UI 잔렉을 피한다.
+    private func loadDupThumbs() async {
+        let urls = dupGroups.flatMap { $0 }.filter { dupThumbs[$0] == nil }
+        for url in urls {
+            let img = await Task.detached(priority: .userInitiated) {
+                fileThumbnail(at: url)
+            }.value
+            dupThumbs[url] = img
+        }
+    }
+
+    private func deleteDupSelected() {
+        let dir = dupScanDir
+        var trashed = 0
+        var failed = 0
+        for url in dupSelected {
+            do {
+                try FileManager.default.trashItem(at: url, resultingItemURL: nil)
+                trashed += 1
+            } catch {
+                failed += 1
+            }
+        }
+        if let dir { scanDuplicates(dir) }  // 재스캔해 목록 갱신 (dupStatus 초기화됨)
+        dupStatus =
+            "\(trashed)장 휴지통으로 이동 (복구 가능)" + (failed > 0 ? " · 실패 \(failed)장" : "")
+    }
+
+    private var duplicatesSheet: some View {
+        VStack(spacing: 0) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("중복 캡처 정리").font(.headline)
+                    Text(dupScanDir?.path ?? "")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .lineLimit(1).truncationMode(.middle)
+                }
+                Spacer()
+                Button { pickDuplicateFolder() } label: {
+                    Label("폴더 선택", systemImage: "folder")
+                }
+            }
+            .padding(12)
+            Divider()
+
+            if dupGroups.isEmpty {
+                ContentUnavailableView(
+                    "중복 없음", systemImage: "checkmark.circle",
+                    description: Text("이 폴더에는 바이트가 완전히 동일한 중복 캡처가 없습니다."))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                HStack(spacing: 10) {
+                    Button(allDupsSelected ? "전체 해제" : "전체 선택") { toggleSelectAll() }
+                    Text(
+                        "\(dupGroups.count)개 그룹 · 중복 \(deletableDups.count)장 · 선택 \(dupSelected.count)장"
+                    )
+                    .font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                }
+                .padding(.horizontal, 12).padding(.vertical, 8)
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 16) {
+                        ForEach(Array(dupGroups.enumerated()), id: \.offset) { idx, group in
+                            dupGroupRow(idx: idx, group: group)
+                        }
+                    }
+                    .padding(12)
+                }
+            }
+
+            Divider()
+            HStack {
+                if !dupStatus.isEmpty {
+                    Text(dupStatus).font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button("닫기") { showDuplicates = false }
+                Button(role: .destructive) {
+                    deleteDupSelected()
+                } label: {
+                    Label("선택 \(dupSelected.count)장 삭제", systemImage: "trash")
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(dupSelected.isEmpty)
+            }
+            .padding(12)
+        }
+        .frame(width: 760, height: 640)
+        .task(id: dupScanDir) { await loadDupThumbs() }
+    }
+
+    private func dupGroupRow(idx: Int, group: [URL]) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("동일 그룹 #\(idx + 1) · \(group.count)장").font(.subheadline.bold())
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 10) {
+                    ForEach(Array(group.enumerated()), id: \.offset) { i, url in
+                        dupThumbCell(url: url, isKeep: i == 0)
+                    }
+                }
+            }
+        }
+    }
+
+    private func dupThumbCell(url: URL, isKeep: Bool) -> some View {
+        let selected = dupSelected.contains(url)
+        return VStack(spacing: 4) {
+            ZStack(alignment: .topLeading) {
+                Group {
+                    if let img = dupThumbs[url] {
+                        Image(img, scale: 1, label: Text(url.lastPathComponent))
+                            .resizable().scaledToFit()
+                    } else {
+                        RoundedRectangle(cornerRadius: 6).fill(.quaternary.opacity(0.5))
+                            .overlay(ProgressView().controlSize(.small))
+                    }
+                }
+                .frame(width: 150, height: 190)
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6).stroke(
+                        isKeep
+                            ? Color.green
+                            : (selected ? Color.accentColor : Color.secondary.opacity(0.3)),
+                        lineWidth: (isKeep || selected) ? 2 : 1))
+                if isKeep {
+                    Text("유지")
+                        .font(.caption2.bold())
+                        .padding(.horizontal, 6).padding(.vertical, 2)
+                        .background(Capsule().fill(.green))
+                        .foregroundStyle(.white).padding(6)
+                } else {
+                    Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                        .font(.system(size: 20))
+                        .foregroundStyle(selected ? Color.accentColor : .secondary)
+                        .background(Circle().fill(.white).padding(3))
+                        .padding(6)
+                }
+            }
+            Text(url.lastPathComponent)
+                .font(.caption2.monospaced()).lineLimit(1).foregroundStyle(.secondary)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            guard !isKeep else { return }  // 유지 이미지는 선택 대상 아님
+            if selected { dupSelected.remove(url) } else { dupSelected.insert(url) }
+        }
     }
 }
 

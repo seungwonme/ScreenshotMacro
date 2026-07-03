@@ -278,6 +278,45 @@ public func fileHash(at url: URL) -> String? {
     return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
 }
 
+/// dir(하위 폴더 포함) 안의 모든 PNG를 경로순으로 수집.
+public func collectPNGs(in dir: String) throws -> [URL] {
+    let base = URL(fileURLWithPath: dir)
+    guard FileManager.default.fileExists(atPath: base.path) else {
+        throw die("디렉토리가 없습니다: \(dir)")
+    }
+    let files = FileManager.default.enumerator(
+        at: base, includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey])?
+        .compactMap { $0 as? URL }
+        .filter { $0.pathExtension.lowercased() == "png" } ?? []
+    return files.sorted { $0.path < $1.path }
+}
+
+/// PNG들을 파일 바이트 SHA256로 그룹핑. 2장 이상 동일한 그룹만 반환하며,
+/// 각 그룹은 경로순, 그룹들도 첫 원소 경로순으로 정렬한다. CLI/GUI 공용.
+public func duplicateGroups(in dir: String) -> [[URL]] {
+    let files = (try? collectPNGs(in: dir)) ?? []
+    var byHash: [String: [URL]] = [:]
+    for f in files {
+        guard let h = fileHash(at: f) else { continue }
+        byHash[h, default: []].append(f)
+    }
+    return byHash.values
+        .filter { $0.count > 1 }
+        .map { $0.sorted { $0.path < $1.path } }
+        .sorted { $0[0].path < $1[0].path }
+}
+
+/// 파일에서 최대 변 길이 maxPixel의 축소 썸네일 생성 (원본 풀해상도 디코드를 피해 메모리 절약).
+public func fileThumbnail(at url: URL, maxPixel: Int = 400) -> CGImage? {
+    guard let src = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+    let opts: [CFString: Any] = [
+        kCGImageSourceCreateThumbnailFromImageAlways: true,
+        kCGImageSourceThumbnailMaxPixelSize: maxPixel,
+        kCGImageSourceCreateThumbnailWithTransform: true,
+    ]
+    return CGImageSourceCreateThumbnailAtIndex(src, 0, opts as CFDictionary)
+}
+
 // Python 버전의 screenshots/01, 02, ... 세션 디렉토리 규칙과 동일
 public func nextSessionDir(base: String) throws -> URL {
     let fm = FileManager.default

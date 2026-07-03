@@ -66,18 +66,6 @@ let usage = """
 
 // MARK: - 유틸리티 명령
 
-func collectPNGs(in dir: String) throws -> [URL] {
-    let base = URL(fileURLWithPath: dir)
-    guard FileManager.default.fileExists(atPath: base.path) else {
-        throw die("디렉토리가 없습니다: \(dir)")
-    }
-    let files = FileManager.default.enumerator(
-        at: base, includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey])?
-        .compactMap { $0 as? URL }
-        .filter { $0.pathExtension.lowercased() == "png" } ?? []
-    return files.sorted { $0.path < $1.path }
-}
-
 func fmtSize(_ bytes: Int) -> String {
     ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
 }
@@ -132,23 +120,9 @@ func runClean(dir: String, force: Bool) throws {
 func runFindDuplicates(dir: String, delete: Bool, force: Bool) throws {
     let files = try collectPNGs(in: dir)
     guard !files.isEmpty else { return print("캡처 없음: \(dir)") }
-    var byHash: [String: [URL]] = [:]
-    var checked = 0
-    for f in files {
-        guard let h = fileHash(at: f) else {
-            FileHandle.standardError.write(Data("해시 실패: \(f.path)\n".utf8))
-            continue
-        }
-        byHash[h, default: []].append(f)
-        checked += 1
-    }
-    // 바이트 완전 동일한 것끼리만 그룹핑. 각 그룹/멤버는 경로순 정렬.
-    let dupGroups = byHash.values
-        .filter { $0.count > 1 }
-        .map { $0.sorted { $0.path < $1.path } }
-        .sorted { $0[0].path < $1[0].path }
+    let dupGroups = duplicateGroups(in: dir)
     guard !dupGroups.isEmpty else {
-        return print("중복 없음 (\(checked)장 검사, 바이트 완전 동일 기준)")
+        return print("중복 없음 (\(files.count)장 검사, 바이트 완전 동일 기준)")
     }
     for (n, g) in dupGroups.enumerated() {
         print("\n동일 그룹 #\(n + 1):")
