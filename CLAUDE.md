@@ -42,7 +42,7 @@ screenshotMacro/
 │   ├── macro_pyqt.py       # Screenshot macro worker thread
 │   ├── utils.py            # Utility functions (screenshot, cleanup)
 │   └── find_duplicate_images.py  # Image duplicate detection
-├── tests/                  # pytest suite (config, utils, macro worker, duplicates)
+├── tests/                  # pytest suite (config, utils, macro worker, duplicates, cli)
 ├── build_app.py            # PyInstaller build script
 ├── ScreenshotMacro.spec    # PyInstaller bundle spec
 ├── config.json             # Runtime configuration
@@ -119,4 +119,4 @@ screenshotMacro/
 2. **Permissions**: Screen recording permission required for Python
 3. **Screenshot Storage**: Each run saves into a new numbered session subdirectory (`screenshots/01/`, `screenshots/02/`, ...) created by `get_next_session_dir()`; the base directory is configurable
 4. **Logging**: Uses loguru - enable debug with `-v` flag
-5. **Tests**: pytest 테스트 존재 (`tests/test_config.py`, `tests/test_utils.py`, `tests/test_macro_worker.py`, `tests/test_find_duplicates.py`)
+5. **Tests**: pytest 테스트 존재 (`tests/test_config.py`, `tests/test_utils.py`, `tests/test_macro_worker.py`, `tests/test_find_duplicates.py`, `tests/test_cli.py`)
