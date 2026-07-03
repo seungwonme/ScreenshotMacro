@@ -93,6 +93,11 @@ public func sendKey(_ name: String, toPid pid: pid_t) throws {
     guard let code = keyCodes[name] else {
         throw die("모르는 키 '\(name)' (지원: \(keyCodes.keys.sorted().joined(separator: ", ")))")
     }
+    try sendKey(code: code, toPid: pid)
+}
+
+/// 키코드 직접 전송 (GUI 키 캡처로 임의 키 지원)
+public func sendKey(code: CGKeyCode, toPid pid: pid_t) throws {
     let source = CGEventSource(stateID: .hidSystemState)
     guard let down = CGEvent(keyboardEventSource: source, virtualKey: code, keyDown: true),
         let up = CGEvent(keyboardEventSource: source, virtualKey: code, keyDown: false)
@@ -181,6 +186,10 @@ public func sendKeyGlobal(_ name: String) throws {
     guard let code = keyCodes[name] else {
         throw die("모르는 키 '\(name)' (지원: \(keyCodes.keys.sorted().joined(separator: ", ")))")
     }
+    try sendKeyGlobal(code: code)
+}
+
+public func sendKeyGlobal(code: CGKeyCode) throws {
     let source = CGEventSource(stateID: .hidSystemState)
     guard let down = CGEvent(keyboardEventSource: source, virtualKey: code, keyDown: true),
         let up = CGEvent(keyboardEventSource: source, virtualKey: code, keyDown: false)
@@ -255,6 +264,35 @@ public func resolveApp(named name: String) throws -> NSRunningApplication {
         throw die("실행 중인 앱에서 '\(name)'을 찾을 수 없습니다")
     }
     return app
+}
+
+// MARK: - 중복 이미지 탐지 (Python imagehash.average_hash 8x8과 동일 알고리즘)
+
+/// 8x8 그레이스케일 평균 해시. 해밍 거리 0 = 사실상 동일 이미지.
+public func averageHash(_ image: CGImage) -> UInt64? {
+    let side = 8
+    guard
+        let ctx = CGContext(
+            data: nil, width: side, height: side, bitsPerComponent: 8, bytesPerRow: side,
+            space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue)
+    else { return nil }
+    ctx.interpolationQuality = .medium
+    ctx.draw(image, in: CGRect(x: 0, y: 0, width: side, height: side))
+    guard let data = ctx.data else { return nil }
+    let px = data.bindMemory(to: UInt8.self, capacity: side * side)
+    var sum = 0
+    for i in 0..<64 { sum += Int(px[i]) }
+    let avg = sum / 64
+    var hash: UInt64 = 0
+    for i in 0..<64 where Int(px[i]) > avg { hash |= (1 << UInt64(i)) }
+    return hash
+}
+
+public func hammingDistance(_ a: UInt64, _ b: UInt64) -> Int { (a ^ b).nonzeroBitCount }
+
+public func loadImage(at url: URL) -> CGImage? {
+    guard let src = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+    return CGImageSourceCreateImageAtIndex(src, 0, nil)
 }
 
 // Python 버전의 screenshots/01, 02, ... 세션 디렉토리 규칙과 동일

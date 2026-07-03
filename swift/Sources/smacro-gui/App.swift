@@ -40,6 +40,7 @@ struct ContentView: View {
     @AppStorage("actionType") private var actionType = "key"  // "key" | "click"
     @AppStorage("foregroundMode") private var foregroundMode = false
     @AppStorage("key") private var key = "right"
+    @AppStorage("keyCode") private var keyCode = 124  // right
     @AppStorage("clickPointString") private var clickPointString = ""  // "x,y" (창 기준 포인트)
     @AppStorage("waitSeconds") private var waitSeconds = 5.0
     @AppStorage("randomDelay") private var randomDelay = true
@@ -63,6 +64,8 @@ struct ContentView: View {
     @State private var progress = 0
     @State private var macroTask: Task<Void, Never>?
     @State private var lastSessionDir: URL?
+    @State private var capturingKey = false
+    @State private var keyMonitor: Any?
 
     private var running: Bool { macroTask != nil }
 
@@ -354,8 +357,28 @@ struct ContentView: View {
                 .pickerStyle(.segmented)
                 .labelsHidden()
                 if actionType == "key" {
-                    Picker("보낼 키", selection: $key) {
-                        ForEach(keyCodes.keys.sorted(), id: \.self) { Text($0).tag($0) }
+                    LabeledContent("보낼 키") {
+                        HStack(spacing: 6) {
+                            Text(key)
+                                .font(.body.monospaced())
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 2)
+                                .background(RoundedRectangle(cornerRadius: 5).fill(.quaternary))
+                            Menu("자주 쓰는 키") {
+                                ForEach(keyCodes.keys.sorted(), id: \.self) { name in
+                                    Button(name) {
+                                        key = name
+                                        keyCode = Int(keyCodes[name]!)
+                                        testPassed = false
+                                    }
+                                }
+                            }
+                            .frame(width: 110)
+                            Button(capturingKey ? "키를 누르세요... (esc 취소)" : "키 캡처") {
+                                capturingKey ? stopKeyCapture() : startKeyCapture()
+                            }
+                            .tint(capturingKey ? .orange : nil)
+                        }
                     }
                 } else {
                     clickPositionPicker
@@ -614,6 +637,38 @@ struct ContentView: View {
 
     // MARK: - Actions
 
+    // MARK: - 키 캡처 (아무 키나 등록, Python의 key capture 대응)
+
+    private func startKeyCapture() {
+        capturingKey = true
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            defer { DispatchQueue.main.async { stopKeyCapture() } }
+            if event.keyCode != 53 {  // esc는 취소
+                keyCode = Int(event.keyCode)
+                key = keyDisplayName(for: event)
+                testPassed = false
+            }
+            return nil  // 이벤트 소비 (앱 단축키로 새지 않게)
+        }
+    }
+
+    private func stopKeyCapture() {
+        if let m = keyMonitor {
+            NSEvent.removeMonitor(m)
+            keyMonitor = nil
+        }
+        capturingKey = false
+    }
+
+    private func keyDisplayName(for event: NSEvent) -> String {
+        if let known = keyCodes.first(where: { $0.value == CGKeyCode(event.keyCode) })?.key {
+            return known
+        }
+        let chars = event.charactersIgnoringModifiers ?? ""
+        return chars.isEmpty || chars.unicodeScalars.contains(where: { $0.value < 0x20 })
+            ? "code \(event.keyCode)" : chars
+    }
+
     private func refreshTargets() async {
         do {
             try checkScreenRecording()
@@ -708,14 +763,14 @@ struct ContentView: View {
                 try sendClickGlobal(at: clickPoint, window: window)
                 return "전면 클릭"
             }
-            try sendKeyGlobal(key)
+            try sendKeyGlobal(code: CGKeyCode(keyCode))
             return "전면 키 입력"
         }
         if actionType == "click" {
             guard let clickPoint else { throw die("클릭 위치가 지정되지 않았습니다 (3단계)") }
             return try sendClick(at: clickPoint, window: window, toPid: pid)
         } else {
-            try sendKey(key, toPid: pid)
+            try sendKey(code: CGKeyCode(keyCode), toPid: pid)
             return "키 입력"
         }
     }

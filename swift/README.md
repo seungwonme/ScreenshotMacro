@@ -48,6 +48,16 @@ swift run smacro-proto macro --app 미리보기 --reps 300 --key right \
 엔드투엔드 자동 검증: `../scripts/validate-swift-proto.sh` (2026-07-03 macOS 26.5.1에서 PASS 5/0)
 
 지원 키: `right` `left` `up` `down` `space` `return` `pageup` `pagedown`
+(GUI에서는 "키 캡처"로 아무 키나 등록 가능)
+
+### 유틸리티 (기본 디렉토리 ./captures, --dir로 변경)
+
+```bash
+swift run smacro-proto captures                    # 세션별 캡처 현황
+swift run smacro-proto stats                       # 전체 통계
+swift run smacro-proto clean [-f]                  # 캡처 전체 휴지통 이동 (-f: 확인 생략)
+swift run smacro-proto find-duplicates [--threshold 5]  # 중복 이미지 탐지 (기본 0=완전 동일)
+```
 
 ## 한계 (프로토타입)
 
