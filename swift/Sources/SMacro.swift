@@ -6,6 +6,7 @@
 //   - 화면 기록(Screen Recording): list / capture / macro
 //   - 손쉬운 사용(Accessibility): send-key / macro
 
+import AppKit
 import CoreGraphics
 import Foundation
 import ImageIO
@@ -96,23 +97,55 @@ func flagValue(_ args: [String], _ flag: String) -> String? {
     return args[i + 1]
 }
 
-func requirePid(_ args: [String]) throws -> pid_t {
-    guard let raw = flagValue(args, "--pid"), let pid = pid_t(raw) else {
-        throw die("--pid <숫자>가 필요합니다 (list 명령으로 확인)")
+func resolveTarget(_ args: [String]) throws -> pid_t {
+    if let raw = flagValue(args, "--pid") {
+        guard let pid = pid_t(raw) else { throw die("--pid 값이 숫자가 아닙니다: \(raw)") }
+        return pid
     }
-    return pid
+    if let name = flagValue(args, "--app") {
+        func rank(_ a: NSRunningApplication) -> Int {
+            // 정확 일치 > 도크에 뜨는 일반 앱 > 나머지 (헬퍼 프로세스 오선택 방지)
+            let exact = (a.localizedName ?? "").caseInsensitiveCompare(name) == .orderedSame
+            return (exact ? 0 : 2) + (a.activationPolicy == .regular ? 0 : 1)
+        }
+        let apps = NSWorkspace.shared.runningApplications
+            .filter { ($0.localizedName ?? "").localizedCaseInsensitiveContains(name) }
+            .sorted { rank($0) < rank($1) }
+        guard let app = apps.first else {
+            throw die("실행 중인 앱에서 '\(name)'을 찾을 수 없습니다 (list로 확인)")
+        }
+        if apps.count > 1 {
+            print("주의: '\(name)' 일치 앱 \(apps.count)개 중 '\(app.localizedName ?? "?")' 선택")
+        }
+        return app.processIdentifier
+    }
+    throw die("--app <이름> 또는 --pid <숫자>가 필요합니다 (list 명령으로 확인)")
+}
+
+// Python 버전의 screenshots/01, 02, ... 세션 디렉토리 규칙과 동일
+func nextSessionDir(base: String) throws -> URL {
+    let fm = FileManager.default
+    try fm.createDirectory(atPath: base, withIntermediateDirectories: true)
+    let existing = (try? fm.contentsOfDirectory(atPath: base)) ?? []
+    let next = (existing.compactMap { Int($0) }.max() ?? 0) + 1
+    let dir = URL(fileURLWithPath: base).appendingPathComponent(String(format: "%02d", next))
+    try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+    return dir
 }
 
 let usage = """
     smacro-proto — ScreenshotMacro Swift 프로토타입
 
+    대상 지정: --app <앱 이름 일부> 또는 --pid <숫자> (list로 확인)
+
     사용법:
       smacro-proto list                                   캡처 가능한 윈도우 목록 (pid, 앱, 제목)
-      smacro-proto capture --pid <pid> [--out <path>]     해당 앱의 최대 윈도우를 PNG로 캡처
-      smacro-proto send-key --pid <pid> --key <name>      해당 앱에만 키 이벤트 전송 (포커스 불필요)
-      smacro-proto macro --pid <pid> [--reps N] [--key right]
+      smacro-proto capture --app <이름> [--out <path>]    해당 앱의 최대 윈도우를 PNG로 캡처
+      smacro-proto send-key --app <이름> --key <name>     해당 앱에만 키 이벤트 전송 (포커스 불필요)
+      smacro-proto macro --app <이름> [--reps N] [--key right]
                          [--wait S] [--delay-min S] [--delay-max S] [--out <dir>]
                                                           캡처+키 전송 반복 (백그라운드 동작)
+                                                          --out 생략 시 captures/01, 02, ... 자동 생성
     """
 
 // MARK: - Main
@@ -147,38 +180,43 @@ struct SMacro {
             }
 
         case "capture":
+            let pid = try resolveTarget(args)
             try checkScreenRecording()
-            let pid = try requirePid(args)
             let out = flagValue(args, "--out") ?? "capture_\(pid).png"
             let window = try await frontWindow(ofPid: pid)
             try await capture(window: window, to: URL(fileURLWithPath: out))
             print("저장: \(out) (\(window.owningApplication?.applicationName ?? "?") — \(window.title ?? ""))")
 
         case "send-key":
+            let pid = try resolveTarget(args)
             try checkAccessibility()
-            let pid = try requirePid(args)
             let key = flagValue(args, "--key") ?? "right"
             try sendKey(key, toPid: pid)
             print("키 '\(key)' 전송 완료 -> pid \(pid)")
 
         case "macro":
+            let pid = try resolveTarget(args)
             try checkScreenRecording()
             try checkAccessibility()
-            let pid = try requirePid(args)
             let reps = Int(flagValue(args, "--reps") ?? "10") ?? 10
             let key = flagValue(args, "--key") ?? "right"
             let wait = Double(flagValue(args, "--wait") ?? "3") ?? 3
             let delayMin = Double(flagValue(args, "--delay-min") ?? "1") ?? 1
             let delayMax = Double(flagValue(args, "--delay-max") ?? "1") ?? 1
-            let outDir = flagValue(args, "--out") ?? "captures"
-            try FileManager.default.createDirectory(
-                atPath: outDir, withIntermediateDirectories: true)
+            let sessionDir: URL
+            if let out = flagValue(args, "--out") {
+                sessionDir = URL(fileURLWithPath: out)
+                try FileManager.default.createDirectory(
+                    at: sessionDir, withIntermediateDirectories: true)
+            } else {
+                sessionDir = try nextSessionDir(base: "captures")
+            }
 
-            print("\(wait)초 후 시작 (pid \(pid), \(reps)회, 키 '\(key)')")
+            print("\(wait)초 후 시작 (pid \(pid), \(reps)회, 키 '\(key)') -> \(sessionDir.path)/")
             try await Task.sleep(for: .seconds(wait))
             for i in 1...reps {
                 let window = try await frontWindow(ofPid: pid)  // 매 회 조회: 창 이동/리사이즈 대응
-                let out = URL(fileURLWithPath: outDir).appendingPathComponent(
+                let out = sessionDir.appendingPathComponent(
                     String(format: "screenshot_%03d.png", i))
                 try await capture(window: window, to: out)
                 try sendKey(key, toPid: pid)
@@ -187,7 +225,7 @@ struct SMacro {
                     try await Task.sleep(for: .seconds(Double.random(in: delayMin...max(delayMin, delayMax))))
                 }
             }
-            print("완료: \(outDir)/")
+            print("완료: \(sessionDir.path)/")
 
         default:
             print(usage)

@@ -18,19 +18,18 @@ Python 버전이 구조적으로 못 하는 것을 검증하는 CLI 프로토타
 cd swift
 swift build
 
-# 1. 캡처 가능한 윈도우 목록에서 대상 pid 확인
-swift run smacro-proto list
+# 대상 지정은 --app <앱 이름 일부> (또는 --pid <숫자>)
+swift run smacro-proto list                                   # 캡처 가능한 윈도우 목록
+swift run smacro-proto capture --app 미리보기 --out /tmp/t.png  # 단건 캡처 (가려져 있어도 OK)
+swift run smacro-proto send-key --app 미리보기 --key right      # 키 전송 (포커스 불필요)
 
-# 2. 단건 캡처 검증 (대상 앱을 다른 창으로 가려도 캡처되는지 확인)
-swift run smacro-proto capture --pid <pid> --out /tmp/test.png
-
-# 3. 키 전송 검증 (대상 앱이 포커스 없어도 반응하는지 확인)
-swift run smacro-proto send-key --pid <pid> --key right
-
-# 4. 전체 매크로 (캡처 + 키 전송 반복, 백그라운드 동작)
-swift run smacro-proto macro --pid <pid> --reps 20 --key right \
-  --wait 3 --delay-min 0.5 --delay-max 2 --out captures
+# 전체 매크로: 캡처 + 키 전송 반복, 도는 동안 다른 작업 가능
+# --out 생략 시 captures/01, 02, ... 세션 디렉토리 자동 생성
+swift run smacro-proto macro --app 미리보기 --reps 300 --key right \
+  --wait 5 --delay-min 1 --delay-max 3
 ```
+
+엔드투엔드 자동 검증: `../scripts/validate-swift-proto.sh` (2026-07-03 macOS 26.5.1에서 PASS 5/0)
 
 지원 키: `right` `left` `up` `down` `space` `return` `pageup` `pagedown`
 
@@ -38,4 +37,4 @@ swift run smacro-proto macro --pid <pid> --reps 20 --key right \
 
 - 최소화된 윈도우는 캡처 불가 (ScreenCaptureKit 제약 — 가려진 창은 가능)
 - 앱별 최대 크기 윈도우 하나만 대상
-- 검증 완료 후 GUI(SwiftUI)와 세션 디렉토리·중복 탐지(Vision FeaturePrint)를 이식할 예정
+- 검증 완료 후 GUI(SwiftUI)와 중복 탐지(Vision FeaturePrint)를 이식할 예정
