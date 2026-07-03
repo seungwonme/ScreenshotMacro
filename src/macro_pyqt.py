@@ -4,14 +4,17 @@ from __future__ import annotations
 
 import random
 import time
+
 import pyautogui
 from loguru import logger
 from PyQt6.QtCore import QThread, pyqtSignal
 
-from src.config import get_config
-from src.utils import ScreenshotError, get_next_count, get_next_session_dir, take_screenshot
+from src.config import ActionConfig, get_config
+from src.utils import ScreenshotError, get_next_session_dir, take_screenshot
 
-from src.config import ActionConfig
+# Abort the macro after this many consecutive screenshot failures (e.g. revoked
+# screen-recording permission) instead of flooding error signals indefinitely.
+MAX_CONSECUTIVE_FAILURES = 3
 
 
 class MacroWorker(QThread):
@@ -22,6 +25,7 @@ class MacroWorker(QThread):
     error = pyqtSignal(str)
     countdown = pyqtSignal(int)  # remaining seconds
     status_changed = pyqtSignal(str)  # status text
+    session_started = pyqtSignal(str)  # session directory path
 
     def __init__(
         self,
@@ -57,20 +61,39 @@ class MacroWorker(QThread):
         self.should_stop = True
         logger.info("Macro stop requested")
 
+    def _interruptible_sleep(self, duration: float) -> None:
+        """Sleep in short chunks so a stop request takes effect promptly.
+
+        A single long ``time.sleep`` would keep the worker (and a GUI waiting on
+        it during close) blocked for up to the full delay; chunking lets
+        ``should_stop`` cut the wait short.
+        """
+        step = 0.1
+        elapsed = 0.0
+        while elapsed < duration and not self.should_stop:
+            time.sleep(min(step, duration - elapsed))
+            elapsed += step
+
+    def _run_initial_wait(self) -> bool:
+        """Run the initial countdown. Returns False if stopped during the wait."""
+        initial_wait = self.initial_wait
+        logger.info(f"Starting macro with {initial_wait}s initial wait")
+        self.status_changed.emit("waiting")
+        for remaining in range(int(initial_wait), 0, -1):
+            if self.should_stop:
+                return False
+            self.countdown.emit(remaining)
+            time.sleep(1)
+        fraction = initial_wait - int(initial_wait)
+        if fraction > 0 and not self.should_stop:
+            time.sleep(fraction)
+        return not self.should_stop
+
     def run(self) -> None:
         """Execute the macro loop."""
         try:
-            initial_wait = self.initial_wait
-            logger.info(f"Starting macro with {initial_wait}s initial wait")
-            self.status_changed.emit("waiting")
-            for remaining in range(int(initial_wait), 0, -1):
-                if self.should_stop:
-                    return
-                self.countdown.emit(remaining)
-                time.sleep(1)
-            fraction = initial_wait - int(initial_wait)
-            if fraction > 0 and not self.should_stop:
-                time.sleep(fraction)
+            if not self._run_initial_wait():
+                return
             self.status_changed.emit("running")
 
             screenshot_config = self._config.screenshot
@@ -79,11 +102,15 @@ class MacroWorker(QThread):
             session_dir = get_next_session_dir(screenshot_config.directory)
             session_dir.mkdir(parents=True, exist_ok=True)
             logger.info(f"Session directory: {session_dir}")
+            self.session_started.emit(str(session_dir))
 
             directory = session_dir
             prefix = screenshot_config.prefix
             extension = screenshot_config.format
-            count = get_next_count(directory, prefix, extension)
+            # Each run uses a fresh numbered session directory, so file
+            # numbering always starts at 1.
+            count = 1
+            consecutive_failures = 0
 
             logger.info(
                 f"Starting {self.repetitions} repetitions "
@@ -96,7 +123,7 @@ class MacroWorker(QThread):
                     break
 
                 delay = random.uniform(self.delay_min, self.delay_max)
-                time.sleep(delay)
+                self._interruptible_sleep(delay)
 
                 if self.should_stop:
                     break
@@ -112,11 +139,21 @@ class MacroWorker(QThread):
                         self.height,
                     )
                     count += 1
+                    consecutive_failures = 0
+                    # Only advance (key press / click) after a successful capture
+                    # so a transient failure never silently skips a page.
+                    self._execute_action()
                 except ScreenshotError as e:
+                    consecutive_failures += 1
                     logger.error(f"Screenshot failed at iteration {i}: {e}")
                     self.error.emit(str(e))
+                    if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+                        logger.error(
+                            f"Aborting macro after {consecutive_failures} "
+                            "consecutive screenshot failures"
+                        )
+                        break
 
-                self._execute_action()
                 self.progress.emit(i + 1, self.repetitions)
 
             logger.info("Macro completed")
@@ -144,5 +181,7 @@ class MacroWorker(QThread):
                 else:
                     pyautogui.click()
                     logger.debug("Clicked at current position")
+            else:
+                logger.warning(f"Unknown action type '{action_type}'; no action performed")
         except Exception as e:
             logger.error(f"Action execution failed: {e}")
