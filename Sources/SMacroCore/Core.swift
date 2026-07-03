@@ -295,6 +295,27 @@ public func loadImage(at url: URL) -> CGImage? {
     return CGImageSourceCreateImageAtIndex(src, 0, nil)
 }
 
+/// PNG 목록을 aHash로 유사 그룹핑. 그리디: 기존 그룹의 아무 멤버와 임계값 이내면 합류.
+/// threshold 0 = 완전 일치(로딩 중 등으로 사실상 동일한 프레임). 그룹은 파일명 순서 유지.
+/// 반환은 크기 2 이상 그룹만 (첫 원소가 대표, 나머지가 중복). 해시 실패 파일은 제외.
+public func duplicateGroups(in files: [URL], threshold: Int) -> [[URL]] {
+    var hashed: [(url: URL, hash: UInt64)] = []
+    for f in files.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
+        if let img = loadImage(at: f), let h = averageHash(img) { hashed.append((f, h)) }
+    }
+    var groups: [[(url: URL, hash: UInt64)]] = []
+    for item in hashed {
+        if let i = groups.firstIndex(where: { g in
+            g.contains { hammingDistance($0.hash, item.hash) <= threshold }
+        }) {
+            groups[i].append(item)
+        } else {
+            groups.append([item])
+        }
+    }
+    return groups.filter { $0.count > 1 }.map { $0.map(\.url) }
+}
+
 // Python 버전의 screenshots/01, 02, ... 세션 디렉토리 규칙과 동일
 public func nextSessionDir(base: String) throws -> URL {
     let fm = FileManager.default
