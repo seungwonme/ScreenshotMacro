@@ -783,9 +783,14 @@ struct ContentView: View {
         let dMax = randomDelay ? max(dMin, delayMax) : dMin
         let areaNow = fullWindow ? nil : area
         let baseNow = outputBase
+        RunState.shared.stop = { macroTask?.cancel() }
 
         macroTask = Task {
-            defer { macroTask = nil }
+            defer {
+                macroTask = nil
+                RunState.shared.stop = nil
+                FloatingHUD.hide()
+            }
             do {
                 try checkScreenRecording()
                 try checkAccessibility()
@@ -793,6 +798,9 @@ struct ContentView: View {
                 lastSessionDir = sessionDir
                 progress = 0
                 lastFrame = nil
+                RunState.shared.progress = 0
+                RunState.shared.reps = repsNow
+                FloatingHUD.show()
 
                 for s in stride(from: Int(waitNow), through: 1, by: -1) {
                     if Task.isCancelled { break }
@@ -810,6 +818,7 @@ struct ContentView: View {
                     try performAction(window: window, pid: selected.pid)
                     lastFrame = image
                     progress = i
+                    RunState.shared.progress = i
                     status = "진행 중 — 다른 작업을 하셔도 됩니다"
                     if i < repsNow {
                         try await Task.sleep(for: .seconds(Double.random(in: dMin...dMax)))
@@ -836,5 +845,74 @@ struct ContentView: View {
         let avg = (randomDelay ? (dMin + max(dMin, delayMax)) / 2 : dMin) + 0.4  // +캡처 시간
         let total = Int(Double(max(0, remaining)) * avg)
         return total >= 60 ? "\(total / 60)분 \(total % 60)초" : "\(total)초"
+    }
+}
+
+// MARK: - 플로팅 HUD (모든 Space·전체화면 위에 뜨는 실행 중 미니 패널)
+
+/// 실행 중 상태를 HUD와 공유하는 단일 소스
+final class RunState: ObservableObject {
+    static let shared = RunState()
+    @Published var progress = 0
+    @Published var reps = 0
+    var stop: (() -> Void)?
+}
+
+struct HUDView: View {
+    @ObservedObject var state = RunState.shared
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "camera.fill").font(.caption).foregroundStyle(.secondary)
+            ProgressView(value: Double(state.progress), total: Double(max(state.reps, 1)))
+                .frame(width: 110)
+            Text("\(state.progress)/\(state.reps)")
+                .font(.caption.monospacedDigit())
+            Button {
+                state.stop?()
+            } label: {
+                Image(systemName: "stop.fill").foregroundStyle(.red)
+            }
+            .buttonStyle(.plain)
+            .help("매크로 중지")
+        }
+        .padding(.horizontal, 12)
+        .frame(height: 34)
+    }
+}
+
+@MainActor
+enum FloatingHUD {
+    static var panel: NSPanel?
+
+    static func show() {
+        guard panel == nil else { return }
+        let host = NSHostingView(rootView: HUDView())
+        host.frame = NSRect(x: 0, y: 0, width: 280, height: 34)
+        let p = NSPanel(
+            contentRect: host.frame,
+            styleMask: [.nonactivatingPanel, .utilityWindow, .titled, .fullSizeContentView],
+            backing: .buffered, defer: false)
+        p.contentView = host
+        p.titleVisibility = .hidden
+        p.titlebarAppearsTransparent = true
+        p.isMovableByWindowBackground = true
+        p.level = .floating
+        // 모든 Space에 따라다니고 전체화면 Space 위에도 표시
+        p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        p.isFloatingPanel = true
+        p.becomesKeyOnlyIfNeeded = true
+        p.hidesOnDeactivate = false
+        if let screen = NSScreen.main {
+            let f = screen.visibleFrame
+            p.setFrameOrigin(NSPoint(x: f.maxX - 300, y: f.maxY - 54))
+        }
+        p.orderFrontRegardless()
+        panel = p
+    }
+
+    static func hide() {
+        panel?.close()
+        panel = nil
     }
 }
