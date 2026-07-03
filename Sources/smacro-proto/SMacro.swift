@@ -59,7 +59,9 @@ let usage = """
       smacro-proto captures [--dir D]                     세션별 캡처 현황
       smacro-proto stats [--dir D]                        전체 통계
       smacro-proto clean [--dir D] [-f]                   캡처 전체 삭제(휴지통, -f는 확인 생략)
-      smacro-proto find-duplicates [--dir D]              중복 캡처 탐지 (바이트 완전 동일)
+      smacro-proto find-duplicates [--dir D] [--delete] [-f]
+                                                          중복 캡처 탐지 (바이트 완전 동일)
+                                                          --delete: 그룹당 첫 장만 남기고 나머지 휴지통(-f는 확인 생략)
     """
 
 // MARK: - 유틸리티 명령
@@ -127,7 +129,7 @@ func runClean(dir: String, force: Bool) throws {
     print("완료: \(files.count)장 (\(sessions.count)개 세션) 휴지통으로 이동")
 }
 
-func runFindDuplicates(dir: String) throws {
+func runFindDuplicates(dir: String, delete: Bool, force: Bool) throws {
     let files = try collectPNGs(in: dir)
     guard !files.isEmpty else { return print("캡처 없음: \(dir)") }
     var byHash: [String: [URL]] = [:]
@@ -150,9 +152,34 @@ func runFindDuplicates(dir: String) throws {
     }
     for (n, g) in dupGroups.enumerated() {
         print("\n동일 그룹 #\(n + 1):")
-        for url in g { print("  \(url.path)") }
+        for (i, url) in g.enumerated() {
+            print("  \(url.path)\(delete && i == 0 ? "  [유지]" : "")")
+        }
     }
-    print("\n\(dupGroups.count)개 그룹, 중복 \(dupGroups.map { $0.count - 1 }.reduce(0, +))장")
+    let redundant = dupGroups.map { $0.count - 1 }.reduce(0, +)
+    print("\n\(dupGroups.count)개 그룹, 중복 \(redundant)장")
+    guard delete else { return }
+
+    if !force {
+        print("\n각 그룹의 첫 장만 남기고 \(redundant)장을 휴지통으로 이동합니다. 계속할까요? [y/N] ", terminator: "")
+        guard readLine()?.lowercased() == "y" else { return print("취소됨") }
+    }
+    // 각 그룹은 첫 장(keep)만 남기고 나머지 삭제. 삭제 직전 keep과 바이트까지
+    // 동일한지 재확인해 SHA256 충돌 같은 이론적 오차도 차단(다르면 건너뜀).
+    var trashed = 0
+    for g in dupGroups {
+        let keep = g[0]
+        for victim in g.dropFirst() {
+            guard FileManager.default.contentsEqual(atPath: keep.path, andPath: victim.path) else {
+                FileHandle.standardError.write(
+                    Data("건너뜀(바이트 불일치): \(victim.path)\n".utf8))
+                continue
+            }
+            try FileManager.default.trashItem(at: victim, resultingItemURL: nil)
+            trashed += 1
+        }
+    }
+    print("완료: \(trashed)장 휴지통으로 이동 (복구 가능)")
 }
 
 // MARK: - Main
@@ -248,7 +275,9 @@ struct SMacro {
                 dir: flagValue(args, "--dir") ?? "captures", force: args.contains("-f"))
 
         case "find-duplicates":
-            try runFindDuplicates(dir: flagValue(args, "--dir") ?? "captures")
+            try runFindDuplicates(
+                dir: flagValue(args, "--dir") ?? "captures",
+                delete: args.contains("--delete"), force: args.contains("-f"))
 
         default:
             print(usage)
