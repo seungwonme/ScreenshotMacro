@@ -37,8 +37,11 @@ struct ContentView: View {
     // 설정 (UserDefaults 자동 저장 — Python 버전의 config.json 역할)
     @AppStorage("appName") private var savedAppName = ""
     @AppStorage("reps") private var reps = 100
+    @AppStorage("actionType") private var actionType = "key"  // "key" | "click"
     @AppStorage("key") private var key = "right"
+    @AppStorage("clickPointString") private var clickPointString = ""  // "x,y" (창 기준 포인트)
     @AppStorage("waitSeconds") private var waitSeconds = 5.0
+    @AppStorage("randomDelay") private var randomDelay = true
     @AppStorage("delayMin") private var delayMin = 1.0
     @AppStorage("delayMax") private var delayMax = 3.0
     @AppStorage("fullWindow") private var fullWindow = true
@@ -68,13 +71,27 @@ struct ContentView: View {
         return CGRect(x: p[0], y: p[1], width: p[2], height: p[3])
     }
 
+    private var clickPoint: CGPoint? {
+        let p = clickPointString.split(separator: ",").compactMap { Double($0) }
+        guard p.count == 2 else { return nil }
+        return CGPoint(x: p[0], y: p[1])
+    }
+
+    private var actionLabel: String {
+        actionType == "key" ? "\(key) 키" : "클릭 (\(clickPointString))"
+    }
+
     private let stepTitles = ["대상 창", "캡처 영역", "매크로 설정", "실행"]
 
     private func stepComplete(_ i: Int) -> Bool {
         switch i {
         case 1: return selected != nil
         case 2: return preview != nil && (fullWindow || area != nil)
-        case 3: return reps >= 1 && delayMax >= max(0, delayMin) && !outputBase.isEmpty
+        case 3:
+            let timingOK = reps >= 1 && (!randomDelay || delayMax >= max(0, delayMin))
+                && !outputBase.isEmpty
+            let actionOK = actionType == "key" || clickPoint != nil
+            return timingOK && actionOK
         default: return testPassed
         }
     }
@@ -328,29 +345,57 @@ struct ContentView: View {
 
     private var stepSettings: some View {
         Form {
-            Section("매크로") {
-                HStack {
-                    Text("반복")
-                    TextField("", value: $reps, format: .number).frame(width: 70)
-                    Text("회")
-                    Spacer()
-                    Text("예상 소요 \(etaText(from: reps))")
-                        .font(.caption).foregroundStyle(.secondary)
+            Section("페이지 넘김 동작 (캡처 후 매번 실행)") {
+                Picker("", selection: $actionType) {
+                    Text("키 입력").tag("key")
+                    Text("마우스 클릭").tag("click")
                 }
-                Picker("넘김 키", selection: $key) {
-                    ForEach(keyCodes.keys.sorted(), id: \.self) { Text($0).tag($0) }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                if actionType == "key" {
+                    Picker("보낼 키", selection: $key) {
+                        ForEach(keyCodes.keys.sorted(), id: \.self) { Text($0).tag($0) }
+                    }
+                } else {
+                    clickPositionPicker
                 }
-                HStack {
-                    Text("시작 대기")
-                    TextField("", value: $waitSeconds, format: .number).frame(width: 50)
-                    Text("초")
+            }
+            Section("타이밍") {
+                LabeledContent("반복 횟수") {
+                    HStack(spacing: 4) {
+                        TextField("", value: $reps, format: .number)
+                            .frame(width: 64)
+                            .multilineTextAlignment(.trailing)
+                        Stepper("", value: $reps, in: 1...10000, step: 10).labelsHidden()
+                        Text("회").foregroundStyle(.secondary)
+                    }
                 }
-                HStack {
-                    Text("캡처 간 딜레이")
-                    TextField("", value: $delayMin, format: .number).frame(width: 50)
-                    Text("~")
-                    TextField("", value: $delayMax, format: .number).frame(width: 50)
-                    Text("초 (랜덤)")
+                LabeledContent("시작 대기") {
+                    HStack(spacing: 4) {
+                        TextField("", value: $waitSeconds, format: .number)
+                            .frame(width: 64)
+                            .multilineTextAlignment(.trailing)
+                        Stepper("", value: $waitSeconds, in: 0...60, step: 1).labelsHidden()
+                        Text("초").foregroundStyle(.secondary)
+                    }
+                }
+                Toggle("캡처 간 딜레이 랜덤 (사람처럼 불규칙하게)", isOn: $randomDelay)
+                LabeledContent(randomDelay ? "딜레이 범위" : "딜레이") {
+                    HStack(spacing: 4) {
+                        TextField("", value: $delayMin, format: .number)
+                            .frame(width: 56)
+                            .multilineTextAlignment(.trailing)
+                        if randomDelay {
+                            Text("~").foregroundStyle(.secondary)
+                            TextField("", value: $delayMax, format: .number)
+                                .frame(width: 56)
+                                .multilineTextAlignment(.trailing)
+                        }
+                        Text("초").foregroundStyle(.secondary)
+                    }
+                }
+                LabeledContent("예상 소요") {
+                    Text(etaText(from: reps)).foregroundStyle(.secondary)
                 }
             }
             Section("저장 위치") {
@@ -370,6 +415,59 @@ struct ContentView: View {
         .disabled(running)
     }
 
+    /// 클릭 위치 지정: 미니 미리보기를 클릭하면 창 기준 좌표로 저장
+    private var clickPositionPicker: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if let preview {
+                Text(
+                    clickPoint == nil
+                        ? "아래 미리보기에서 클릭할 위치를 누르세요 (예: '다음' 버튼)"
+                        : "클릭 위치: \(clickPointString) (창 기준 포인트) — 다시 누르면 변경"
+                )
+                .font(.caption)
+                .foregroundStyle(clickPoint == nil ? .orange : .secondary)
+                GeometryReader { geo in
+                    let fit = fittedRect(image: preview, in: geo.size)
+                    ZStack(alignment: .topLeading) {
+                        Image(preview, scale: 1, label: Text("click-preview"))
+                            .resizable()
+                            .frame(width: fit.width, height: fit.height)
+                            .offset(x: fit.minX, y: fit.minY)
+                        if let marker = clickMarker(in: fit) {
+                            Image(systemName: "scope")
+                                .font(.system(size: 18, weight: .bold))
+                                .foregroundStyle(.red)
+                                .shadow(color: .white, radius: 2)
+                                .position(marker)
+                        }
+                    }
+                    .contentShape(Rectangle())
+                    .onTapGesture { location in
+                        guard fit.contains(location), previewPointSize.width > 0 else { return }
+                        let sx = previewPointSize.width / fit.width
+                        let sy = previewPointSize.height / fit.height
+                        clickPointString = String(
+                            format: "%.0f,%.0f",
+                            (location.x - fit.minX) * sx, (location.y - fit.minY) * sy)
+                        testPassed = false
+                    }
+                }
+                .frame(height: 200)
+            } else {
+                Text("1단계에서 대상 창을 먼저 선택하면 여기서 클릭 위치를 지정할 수 있습니다")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
+        }
+    }
+
+    private func clickMarker(in fit: CGRect) -> CGPoint? {
+        guard let clickPoint, previewPointSize.width > 0 else { return nil }
+        return CGPoint(
+            x: fit.minX + clickPoint.x * fit.width / previewPointSize.width,
+            y: fit.minY + clickPoint.y * fit.height / previewPointSize.height)
+    }
+
     // MARK: - Step 4: 실행
 
     private var stepRun: some View {
@@ -379,7 +477,7 @@ struct ContentView: View {
                 summaryItem("macwindow", selected?.appName ?? "창 미선택")
                 summaryItem(
                     "crop", fullWindow ? "창 전체" : (area != nil ? areaString : "영역 미지정"))
-                summaryItem("repeat", "\(reps)회 · \(key) 키")
+                summaryItem("repeat", "\(reps)회 · \(actionLabel)")
                 summaryItem("clock", "약 \(etaText(from: reps))")
             }
             .padding(.top, 12)
@@ -574,9 +672,9 @@ struct ContentView: View {
                 let window = try await findWindow(selected)
                 lastFrame = try await captureImage(
                     window: window, area: fullWindow ? nil : area)
-                try sendKey(key, toPid: selected.pid)
+                try performAction(window: window, pid: selected.pid)
                 testPassed = true
-                status = "테스트 OK — 캡처 1장 + '\(key)' 키 1회 전송됨. 아래 결과를 확인하고 시작하세요"
+                status = "테스트 OK — 캡처 1장 + \(actionLabel) 1회 전송됨. 아래 결과를 확인하고 시작하세요"
             } catch {
                 testPassed = false
                 status = "테스트 실패: \(error)"
@@ -584,13 +682,22 @@ struct ContentView: View {
         }
     }
 
+    /// 설정된 페이지 넘김 동작(키 또는 클릭)을 대상 앱에 전송
+    private func performAction(window: SCWindow, pid: pid_t) throws {
+        if actionType == "click" {
+            guard let clickPoint else { throw die("클릭 위치가 지정되지 않았습니다 (3단계)") }
+            try sendClick(at: clickPoint, window: window, toPid: pid)
+        } else {
+            try sendKey(key, toPid: pid)
+        }
+    }
+
     private func startMacro() {
         guard let selected else { return }
         let repsNow = reps
-        let keyNow = key
         let waitNow = max(0, waitSeconds)
         let dMin = max(0, delayMin)
-        let dMax = max(dMin, delayMax)
+        let dMax = randomDelay ? max(dMin, delayMax) : dMin
         let areaNow = fullWindow ? nil : area
         let baseNow = outputBase
 
@@ -617,7 +724,7 @@ struct ContentView: View {
                         image,
                         to: sessionDir.appendingPathComponent(
                             String(format: "screenshot_%03d.png", i)))
-                    try sendKey(keyNow, toPid: selected.pid)
+                    try performAction(window: window, pid: selected.pid)
                     lastFrame = image
                     progress = i
                     status = "진행 중 — 다른 작업을 하셔도 됩니다"
@@ -642,7 +749,8 @@ struct ContentView: View {
     }
 
     private func etaText(from remaining: Int) -> String {
-        let avg = (max(0, delayMin) + max(max(0, delayMin), delayMax)) / 2 + 0.4  // +캡처 시간
+        let dMin = max(0, delayMin)
+        let avg = (randomDelay ? (dMin + max(dMin, delayMax)) / 2 : dMin) + 0.4  // +캡처 시간
         let total = Int(Double(max(0, remaining)) * avg)
         return total >= 60 ? "\(total / 60)분 \(total % 60)초" : "\(total)초"
     }

@@ -103,6 +103,29 @@ public func sendKey(_ name: String, toPid pid: pid_t) throws {
     usleep(50_000)  // 프로세스 즉시 종료 시 마지막 이벤트가 flush 전에 유실되는 것 방지
 }
 
+/// 창 좌상단 기준 포인트 좌표를 현재 창 위치의 화면 좌표로 환산해 좌클릭 전송.
+/// postToPid라 대상 앱이 백그라운드여도 동작하고, 창이 이동해도 상대 좌표가 유지된다.
+public func sendClick(at windowPoint: CGPoint, window: SCWindow, toPid pid: pid_t) throws {
+    let global = CGPoint(
+        x: window.frame.origin.x + windowPoint.x,
+        y: window.frame.origin.y + windowPoint.y)
+    let source = CGEventSource(stateID: .hidSystemState)
+    guard
+        let down = CGEvent(
+            mouseEventSource: source, mouseType: .leftMouseDown,
+            mouseCursorPosition: global, mouseButton: .left),
+        let up = CGEvent(
+            mouseEventSource: source, mouseType: .leftMouseUp,
+            mouseCursorPosition: global, mouseButton: .left)
+    else { throw die("CGEvent 생성 실패") }
+    down.setIntegerValueField(.mouseEventClickState, value: 1)
+    up.setIntegerValueField(.mouseEventClickState, value: 1)
+    down.postToPid(pid)
+    usleep(20_000)
+    up.postToPid(pid)
+    usleep(50_000)  // 키와 동일: 종료 직전 이벤트 flush 유실 방지
+}
+
 // MARK: - Permissions
 
 public func checkScreenRecording() throws {
