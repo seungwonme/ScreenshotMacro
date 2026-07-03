@@ -49,11 +49,12 @@ for i in 1 2 3 4 5; do
   sleep 0.2
 done
 sleep 0.5
-LEN=$(osascript -e 'tell application "TextEdit" to get length of text of document 1' 2>/dev/null)
-if [ "$KEYFAIL" -eq 0 ] && [ "${LEN:-0}" -eq 5 ]; then
+# macOS 26 TextEdit에서 'length of text of document 1'은 -1728로 실패 -> count characters 사용
+LEN=$(osascript -e 'tell application "TextEdit" to count characters of document 1' 2>&1)
+if [ "$KEYFAIL" -eq 0 ] && [ "$LEN" = "5" ]; then
   ok "백그라운드 키 전송 (문서에 공백 5자 입력 확인)"
 else
-  bad "키 전송 — 문서 글자 수: ${LEN:-읽기 실패} (기대: 5). 손쉬운 사용 권한 확인"
+  bad "키 전송 — 문서 글자 수: $LEN (기대: 5). 손쉬운 사용 권한 확인"
 fi
 
 echo "== 6. 정리 (TextEdit 문서 저장 없이 닫기)"
