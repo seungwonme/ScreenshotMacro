@@ -13,3 +13,7 @@ screenshots/
 .omc/
 .bkit/
 .claude/worktrees/
+
+# Python 잔재 방지 (전환기 로컬 캐시)
+__pycache__/
+uv.lock
