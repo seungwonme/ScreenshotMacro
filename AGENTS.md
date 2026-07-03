@@ -12,7 +12,7 @@ SwiftPM 패키지, 타깃 3개:
   - 캡처: `frontWindow(ofPid:)`(앱의 최대 윈도우), `captureImage(window:area:)`(area는 창 기준 포인트 크롭), `captureThumbnail`, `savePNG`
   - 입력: `sendKey(code:toPid:)`/`sendClick(at:window:toPid:)`(백그라운드), `sendKeyGlobal`/`sendClickGlobal`(전면 모드, HID 전역), `ensureFrontmost`
   - 클릭은 AXPress 우선(Electron은 `AXManualAccessibility`로 AX 트리 강제 활성화, press 지원 조상 6단계 탐색) -> CGEvent 폴백. 반환값이 사용된 방식("AXPress"/"CGEvent")
-  - 유틸: `nextSessionDir`(01, 02, ... 자동 번호), `averageHash`/`hammingDistance`(8x8 aHash), `resolveApp`(이름 부분 일치, 정확 일치 > 도크 앱 랭킹)
+  - 유틸: `nextSessionDir`(01, 02, ... 자동 번호), `fileHash`(파일 바이트 SHA256, 완전 동일 캡처만 탐지 - aHash는 문서/전자책처럼 레이아웃 균일한 캡처에서 오탐 심해 폐기), `resolveApp`(이름 부분 일치, 정확 일치 > 도크 앱 랭킹)
 - `Sources/smacro-gui/App.swift`: SwiftUI 위저드 GUI. 스텝 4개(대상 창 썸네일 그리드 -> 영역 드래그 -> 매크로 설정 -> 실행), 상단 스텝 바 초록 체크, 테스트 1회, 진행 바 + 실시간 컷. 설정은 `@AppStorage`(UserDefaults).
 - `Sources/smacro-proto/SMacro.swift`: CLI. `list`(윈도우) / `capture` / `send-key` / `macro` / `captures`(세션 현황) / `stats` / `clean`(휴지통) / `find-duplicates`.
 
