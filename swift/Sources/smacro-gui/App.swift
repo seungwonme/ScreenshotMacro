@@ -610,9 +610,13 @@ struct ContentView: View {
             let me = ProcessInfo.processInfo.processIdentifier
             let windows = content.windows.filter { w in
                 guard let app = w.owningApplication else { return false }
-                return app.processID != me && w.isOnScreen
+                // windowLayer 0 = 일반 앱 창 (Dock 배경·월페이퍼·오버레이는 다른 레이어)
+                // activationPolicy .regular = 도크에 뜨는 앱 (스크린샷 헬퍼 등 제외)
+                return app.processID != me && w.isOnScreen && w.windowLayer == 0
                     && w.frame.width > 50 && w.frame.height > 50
                     && !app.applicationName.isEmpty
+                    && NSRunningApplication(processIdentifier: app.processID)?
+                        .activationPolicy == .regular
             }
             targets = windows.map {
                 TargetWindow(
