@@ -142,16 +142,36 @@ public func sendClick(at windowPoint: CGPoint, window: SCWindow, toPid pid: pid_
 /// 화면 좌표에 있는 대상 앱의 AX 요소를 찾아 AXPress. 성공 여부 반환.
 private func axPress(at global: CGPoint, pid: pid_t) -> Bool {
     let appEl = AXUIElementCreateApplication(pid)
+    // Electron/Chromium은 보조기술이 요청하기 전까지 AX 트리를 비워둠 -> 수동 활성화.
+    // (Discord 등에서 요소가 안 잡히는 원인. 활성화 직후 트리 구축에 잠깐 걸림)
+    AXUIElementSetAttributeValue(appEl, "AXManualAccessibility" as CFString, kCFBooleanTrue)
+    AXUIElementSetAttributeValue(appEl, "AXEnhancedUserInterface" as CFString, kCFBooleanTrue)
+    usleep(80_000)
+
     var el: AXUIElement?
     guard
         AXUIElementCopyElementAtPosition(appEl, Float(global.x), Float(global.y), &el)
-            == .success, let el
+            == .success, let found = el
     else { return false }
-    var actions: CFArray?
-    guard AXUIElementCopyActionNames(el, &actions) == .success,
-        let list = actions as? [String], list.contains(kAXPressAction)
-    else { return false }
-    return AXUIElementPerformAction(el, kAXPressAction as CFString) == .success
+
+    // 좌표의 요소가 press 미지원이면 부모로 올라가며 탐색 (버튼 안의 텍스트/아이콘 케이스)
+    var cur = found
+    for _ in 0..<6 {
+        var actions: CFArray?
+        if AXUIElementCopyActionNames(cur, &actions) == .success,
+            let list = actions as? [String], list.contains(kAXPressAction),
+            AXUIElementPerformAction(cur, kAXPressAction as CFString) == .success {
+            return true
+        }
+        var parentRef: CFTypeRef?
+        guard
+            AXUIElementCopyAttributeValue(cur, kAXParentAttribute as CFString, &parentRef)
+                == .success,
+            let parent = parentRef, CFGetTypeID(parent) == AXUIElementGetTypeID()
+        else { break }
+        cur = unsafeDowncast(parent as AnyObject, to: AXUIElement.self)
+    }
+    return false
 }
 
 // MARK: - Permissions
