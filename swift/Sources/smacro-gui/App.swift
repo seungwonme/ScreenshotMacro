@@ -38,6 +38,7 @@ struct ContentView: View {
     @AppStorage("appName") private var savedAppName = ""
     @AppStorage("reps") private var reps = 100
     @AppStorage("actionType") private var actionType = "key"  // "key" | "click"
+    @AppStorage("foregroundMode") private var foregroundMode = false
     @AppStorage("key") private var key = "right"
     @AppStorage("clickPointString") private var clickPointString = ""  // "x,y" (창 기준 포인트)
     @AppStorage("waitSeconds") private var waitSeconds = 5.0
@@ -359,6 +360,14 @@ struct ContentView: View {
                 } else {
                     clickPositionPicker
                 }
+                Toggle("전면 모드 (호환)", isOn: $foregroundMode)
+                Text(
+                    foregroundMode
+                        ? "대상 앱을 전면에 두고 하드웨어 입력과 같은 경로(HID)로 전송합니다. 모든 앱에서 동작하지만 도는 동안 맥으로 다른 작업은 못 합니다."
+                        : "백그라운드 모드: 대상 앱에만 이벤트를 보내 도는 동안 다른 작업이 가능합니다. Discord 등 일부 앱이 입력을 무시하면 전면 모드를 켜세요."
+                )
+                .font(.caption)
+                .foregroundStyle(.tertiary)
             }
             Section("타이밍") {
                 LabeledContent("반복 횟수") {
@@ -478,6 +487,9 @@ struct ContentView: View {
                 summaryItem(
                     "crop", fullWindow ? "창 전체" : (area != nil ? areaString : "영역 미지정"))
                 summaryItem("repeat", "\(reps)회 · \(actionLabel)")
+                if foregroundMode {
+                    summaryItem("macwindow.on.rectangle", "전면 모드")
+                }
                 summaryItem("clock", "약 \(etaText(from: reps))")
             }
             .padding(.top, 12)
@@ -689,6 +701,16 @@ struct ContentView: View {
     /// 설정된 페이지 넘김 동작(키 또는 클릭)을 대상 앱에 전송. 사용된 방식 문자열 반환.
     @discardableResult
     private func performAction(window: SCWindow, pid: pid_t) throws -> String {
+        if foregroundMode {
+            ensureFrontmost(pid: pid)
+            if actionType == "click" {
+                guard let clickPoint else { throw die("클릭 위치가 지정되지 않았습니다 (3단계)") }
+                try sendClickGlobal(at: clickPoint, window: window)
+                return "전면 클릭"
+            }
+            try sendKeyGlobal(key)
+            return "전면 키 입력"
+        }
         if actionType == "click" {
             guard let clickPoint else { throw die("클릭 위치가 지정되지 않았습니다 (3단계)") }
             return try sendClick(at: clickPoint, window: window, toPid: pid)

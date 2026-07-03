@@ -174,6 +174,57 @@ private func axPress(at global: CGPoint, pid: pid_t) -> Bool {
     return false
 }
 
+// MARK: - 전면 모드 (전역 HID 이벤트 — 하드웨어 입력과 같은 경로, 포커스된 앱이 받음)
+
+/// 합성 이벤트를 무시하는 앱(Electron 등)용. 대상 앱을 전면에 두고 사용해야 한다.
+public func sendKeyGlobal(_ name: String) throws {
+    guard let code = keyCodes[name] else {
+        throw die("모르는 키 '\(name)' (지원: \(keyCodes.keys.sorted().joined(separator: ", ")))")
+    }
+    let source = CGEventSource(stateID: .hidSystemState)
+    guard let down = CGEvent(keyboardEventSource: source, virtualKey: code, keyDown: true),
+        let up = CGEvent(keyboardEventSource: source, virtualKey: code, keyDown: false)
+    else { throw die("CGEvent 생성 실패") }
+    down.post(tap: .cghidEventTap)
+    usleep(20_000)
+    up.post(tap: .cghidEventTap)
+    usleep(30_000)
+}
+
+/// 전역 클릭 — 실제 커서가 이동하며, 그 좌표의 전면 창이 클릭된다.
+public func sendClickGlobal(at windowPoint: CGPoint, window: SCWindow) throws {
+    let global = CGPoint(
+        x: window.frame.origin.x + windowPoint.x,
+        y: window.frame.origin.y + windowPoint.y)
+    let source = CGEventSource(stateID: .hidSystemState)
+    guard
+        let moved = CGEvent(
+            mouseEventSource: source, mouseType: .mouseMoved,
+            mouseCursorPosition: global, mouseButton: .left),
+        let down = CGEvent(
+            mouseEventSource: source, mouseType: .leftMouseDown,
+            mouseCursorPosition: global, mouseButton: .left),
+        let up = CGEvent(
+            mouseEventSource: source, mouseType: .leftMouseUp,
+            mouseCursorPosition: global, mouseButton: .left)
+    else { throw die("CGEvent 생성 실패") }
+    down.setIntegerValueField(.mouseEventClickState, value: 1)
+    up.setIntegerValueField(.mouseEventClickState, value: 1)
+    moved.post(tap: .cghidEventTap)
+    usleep(30_000)
+    down.post(tap: .cghidEventTap)
+    usleep(30_000)
+    up.post(tap: .cghidEventTap)
+    usleep(30_000)
+}
+
+/// 대상 앱이 전면이 아니면 전면으로 올리고 잠깐 대기 (전면 모드용)
+public func ensureFrontmost(pid: pid_t) {
+    guard let app = NSRunningApplication(processIdentifier: pid), !app.isActive else { return }
+    app.activate()
+    usleep(300_000)
+}
+
 // MARK: - Permissions
 
 public func checkScreenRecording() throws {
