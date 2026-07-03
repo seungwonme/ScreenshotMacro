@@ -4,7 +4,7 @@
 set -u
 export SWIFT_BACKTRACE=enable=no  # 크래시 시 대화형 백트레이서가 스크립트를 멈추지 않게
 
-cd "$(dirname "$0")/../swift" || exit 1
+cd "$(dirname "$0")/.." || exit 1
 BIN=./.build/debug/smacro-proto
 PASS=0; FAIL=0
 ok()   { echo "  PASS: $1"; PASS=$((PASS+1)); }
