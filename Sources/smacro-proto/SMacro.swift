@@ -59,8 +59,7 @@ let usage = """
       smacro-proto captures [--dir D]                     세션별 캡처 현황
       smacro-proto stats [--dir D]                        전체 통계
       smacro-proto clean [--dir D] [-f]                   캡처 전체 삭제(휴지통, -f는 확인 생략)
-      smacro-proto find-duplicates [--dir D] [--threshold N]
-                                                          중복 이미지 탐지 (기본 N=0: 완전 동일)
+      smacro-proto find-duplicates [--dir D]              중복 캡처 탐지 (바이트 완전 동일)
     """
 
 // MARK: - 유틸리티 명령
@@ -128,35 +127,30 @@ func runClean(dir: String, force: Bool) throws {
     print("완료: \(files.count)장 (\(sessions.count)개 세션) 휴지통으로 이동")
 }
 
-func runFindDuplicates(dir: String, threshold: Int) throws {
+func runFindDuplicates(dir: String) throws {
     let files = try collectPNGs(in: dir)
     guard !files.isEmpty else { return print("캡처 없음: \(dir)") }
-    var hashed: [(url: URL, hash: UInt64)] = []
+    var byHash: [String: [URL]] = [:]
+    var checked = 0
     for f in files {
-        guard let img = loadImage(at: f), let h = averageHash(img) else {
+        guard let h = fileHash(at: f) else {
             FileHandle.standardError.write(Data("해시 실패: \(f.path)\n".utf8))
             continue
         }
-        hashed.append((f, h))
+        byHash[h, default: []].append(f)
+        checked += 1
     }
-    // 그리디 그룹핑: 기존 그룹의 아무 멤버와 임계값 이내면 합류 (Python 로직과 동일)
-    var groups: [[(url: URL, hash: UInt64)]] = []
-    for item in hashed {
-        if let i = groups.firstIndex(where: { g in
-            g.contains { hammingDistance($0.hash, item.hash) <= threshold }
-        }) {
-            groups[i].append(item)
-        } else {
-            groups.append([item])
-        }
-    }
-    let dupGroups = groups.filter { $0.count > 1 }
+    // 바이트 완전 동일한 것끼리만 그룹핑. 각 그룹/멤버는 경로순 정렬.
+    let dupGroups = byHash.values
+        .filter { $0.count > 1 }
+        .map { $0.sorted { $0.path < $1.path } }
+        .sorted { $0[0].path < $1[0].path }
     guard !dupGroups.isEmpty else {
-        return print("중복 없음 (\(hashed.count)장 검사, 임계값 \(threshold))")
+        return print("중복 없음 (\(checked)장 검사, 바이트 완전 동일 기준)")
     }
     for (n, g) in dupGroups.enumerated() {
-        print("\n유사 그룹 #\(n + 1) (해시: \(String(g[0].hash, radix: 16))):")
-        for item in g { print("  \(item.url.path)") }
+        print("\n동일 그룹 #\(n + 1):")
+        for url in g { print("  \(url.path)") }
     }
     print("\n\(dupGroups.count)개 그룹, 중복 \(dupGroups.map { $0.count - 1 }.reduce(0, +))장")
 }
@@ -254,9 +248,7 @@ struct SMacro {
                 dir: flagValue(args, "--dir") ?? "captures", force: args.contains("-f"))
 
         case "find-duplicates":
-            try runFindDuplicates(
-                dir: flagValue(args, "--dir") ?? "captures",
-                threshold: Int(flagValue(args, "--threshold") ?? "0") ?? 0)
+            try runFindDuplicates(dir: flagValue(args, "--dir") ?? "captures")
 
         default:
             print(usage)

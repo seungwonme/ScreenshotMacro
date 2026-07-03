@@ -6,6 +6,7 @@
 
 import AppKit
 import CoreGraphics
+import CryptoKit
 import Foundation
 import ImageIO
 import ScreenCaptureKit
@@ -266,33 +267,15 @@ public func resolveApp(named name: String) throws -> NSRunningApplication {
     return app
 }
 
-// MARK: - 중복 이미지 탐지 (Python imagehash.average_hash 8x8과 동일 알고리즘)
+// MARK: - 중복 캡처 탐지 (파일 바이트 SHA256 - 완전 동일 캡처만)
 
-/// 8x8 그레이스케일 평균 해시. 해밍 거리 0 = 사실상 동일 이미지.
-public func averageHash(_ image: CGImage) -> UInt64? {
-    let side = 8
-    guard
-        let ctx = CGContext(
-            data: nil, width: side, height: side, bitsPerComponent: 8, bytesPerRow: side,
-            space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue)
-    else { return nil }
-    ctx.interpolationQuality = .medium
-    ctx.draw(image, in: CGRect(x: 0, y: 0, width: side, height: side))
-    guard let data = ctx.data else { return nil }
-    let px = data.bindMemory(to: UInt8.self, capacity: side * side)
-    var sum = 0
-    for i in 0..<64 { sum += Int(px[i]) }
-    let avg = sum / 64
-    var hash: UInt64 = 0
-    for i in 0..<64 where Int(px[i]) > avg { hash |= (1 << UInt64(i)) }
-    return hash
-}
-
-public func hammingDistance(_ a: UInt64, _ b: UInt64) -> Int { (a ^ b).nonzeroBitCount }
-
-public func loadImage(at url: URL) -> CGImage? {
-    guard let src = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
-    return CGImageSourceCreateImageAtIndex(src, 0, nil)
+/// 파일 내용 전체의 SHA256. 값이 같으면 바이트까지 동일한 파일이다.
+/// aHash(8x8 지문)는 여백/레이아웃이 균일한 문서·전자책 캡처에서 서로 다른 페이지도
+/// 같은 해시로 뭉쳐 오탐이 심해, 스크롤이 안 넘어가 같은 화면을 두 번 찍은 진짜 중복만
+/// 잡도록 바이트 해시로 대체했다.
+public func fileHash(at url: URL) -> String? {
+    guard let data = try? Data(contentsOf: url) else { return nil }
+    return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
 }
 
 // Python 버전의 screenshots/01, 02, ... 세션 디렉토리 규칙과 동일
