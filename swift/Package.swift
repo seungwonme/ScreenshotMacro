@@ -2,9 +2,13 @@
 import PackageDescription
 
 let package = Package(
-    name: "smacro-proto",
+    name: "smacro",
     platforms: [.macOS(.v14)],
     targets: [
-        .executableTarget(name: "smacro-proto", path: "Sources")
+        .target(name: "SMacroCore", path: "Sources/SMacroCore"),
+        .executableTarget(
+            name: "smacro-proto", dependencies: ["SMacroCore"], path: "Sources/smacro-proto"),
+        .executableTarget(
+            name: "smacro-gui", dependencies: ["SMacroCore"], path: "Sources/smacro-gui"),
     ]
 )
