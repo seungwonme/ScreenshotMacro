@@ -4,12 +4,24 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import imagehash
+import numpy as np
 from PIL import Image
 
 from src.find_duplicate_images import (
+    _group_similar_hashes,
     calculate_image_hash,
+    display_duplicate_groups,
     find_duplicate_images,
 )
+
+
+def _make_hash(true_indices: list[int]) -> imagehash.ImageHash:
+    """Build an 8x8 perceptual hash with the given bit positions set to True."""
+    bits = np.zeros(64, dtype=bool)
+    for idx in true_indices:
+        bits[idx] = True
+    return imagehash.ImageHash(bits.reshape(8, 8))
 
 
 def _create_test_image(path: Path, color: tuple = (255, 0, 0), size: tuple = (100, 100)) -> Path:
@@ -85,3 +97,44 @@ class TestFindDuplicateImages:
     def test_empty_directory(self, tmp_path: Path):
         result = find_duplicate_images(str(tmp_path))
         assert result == {}
+
+
+class TestGroupSimilarHashes:
+    def test_grouping_is_transitive(self):
+        # a~b=3, b~c=3, a~c=6: single-linkage must merge all three even though
+        # a and c are not within threshold of each other directly.
+        a = _make_hash([])
+        b = _make_hash([0, 1, 2])
+        c = _make_hash([0, 1, 2, 3, 4, 5])
+        assert (a - b) == 3
+        assert (b - c) == 3
+        assert (a - c) == 6
+
+        hash_dict = {a: [Path("a.png")], b: [Path("b.png")], c: [Path("c.png")]}
+        groups = _group_similar_hashes(hash_dict, hash_threshold=3)
+
+        assert len(groups) == 1
+        all_files = [f for files in groups.values() for f in files]
+        assert len(all_files) == 3
+
+    def test_grouping_is_order_independent(self):
+        # Reversing insertion order must yield the same single merged group.
+        a = _make_hash([])
+        b = _make_hash([0, 1, 2])
+        c = _make_hash([0, 1, 2, 3, 4, 5])
+
+        reversed_dict = {c: [Path("c.png")], b: [Path("b.png")], a: [Path("a.png")]}
+        groups = _group_similar_hashes(reversed_dict, hash_threshold=3)
+
+        all_files = [f for files in groups.values() for f in files]
+        assert len(groups) == 1
+        assert len(all_files) == 3
+
+
+class TestDisplayDuplicateGroups:
+    def test_handles_mixed_numeric_and_text_filenames(self):
+        # A group mixing screenshot_N.png and an arbitrary name must not crash
+        # the sort (int vs str comparison) in display.
+        h = _make_hash([0])
+        duplicates = {h: [Path("screenshot_12.png"), Path("foo.png")]}
+        display_duplicate_groups(duplicates)  # should not raise

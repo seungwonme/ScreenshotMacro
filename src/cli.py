@@ -11,7 +11,7 @@ from rich import print as rich_print
 from rich.console import Console
 from rich.table import Table
 
-from src.config import ConfigManager, get_config
+from src.config import ActionConfig, ConfigManager, get_config
 from src.find_duplicate_images import display_duplicate_groups
 from src.find_duplicate_images import find_duplicate_images as find_dupes
 from src.utils import clean_screenshots as do_clean_screenshots
@@ -55,13 +55,13 @@ def run() -> None:
         from src.gui_pyqt import run_gui
 
         run_gui()
-    except ImportError:
+    except ImportError as exc:
         rich_print("[red]PyQt6 is not installed. Run 'uv add pyqt6' to install.[/red]")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from exc
     except Exception as e:
         logger.error(f"GUI execution error: {e}")
         rich_print(f"[red]GUI error: {e}[/red]")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
 
 
 @app.command(name="self", deprecated=True)
@@ -86,6 +86,80 @@ def clean(
         rich_print(f"[green]Cleaned {deleted} screenshot(s)[/green]")
     else:
         rich_print("[yellow]No screenshots to clean[/yellow]")
+
+
+@app.command()
+def macro(
+    reps: int = typer.Option(None, "-n", "--reps", help="Repetitions (default: from config)"),
+    key: str = typer.Option(
+        None, "-k", "--key", help="Key to press each step (default: from config)"
+    ),
+    wait: float = typer.Option(
+        None, "-w", "--wait", help="Initial wait seconds (default: from config)"
+    ),
+    delay_min: float = typer.Option(
+        None, "--delay-min", help="Min delay between captures (default: from config)"
+    ),
+    delay_max: float = typer.Option(
+        None, "--delay-max", help="Max delay between captures (default: from config)"
+    ),
+) -> None:
+    """Run the screenshot macro without the GUI (headless / automation).
+
+    Uses the capture area saved in config.json; override timing/action via flags.
+    """
+    from PyQt6.QtCore import QCoreApplication
+
+    from src.macro_pyqt import MacroWorker
+
+    config = get_config()
+    area = config.gui.area
+    x1, y1 = area.top_left
+    x2, y2 = area.bottom_right
+    x, y = min(x1, x2), min(y1, y2)
+    width, height = abs(x2 - x1), abs(y2 - y1)
+    if width <= 0 or height <= 0:
+        rich_print(
+            "[red]Configured capture area has invalid dimensions. Run the GUI to set it.[/red]"
+        )
+        raise typer.Exit(1)
+
+    macro_cfg = config.macro
+    repetitions = reps if reps is not None else macro_cfg.repetitions
+    initial_wait = wait if wait is not None else macro_cfg.initial_wait
+    d_min = delay_min if delay_min is not None else macro_cfg.delay.min
+    d_max = delay_max if delay_max is not None else macro_cfg.delay.max
+    action = ActionConfig(type="key", key=key) if key else macro_cfg.action
+
+    if QCoreApplication.instance() is None:
+        QCoreApplication([])
+
+    worker = MacroWorker(
+        repetitions,
+        d_min,
+        d_max,
+        x,
+        y,
+        width,
+        height,
+        action_config=action,
+        initial_wait=initial_wait,
+    )
+    worker.countdown.connect(lambda r: rich_print(f"[dim]Starting in {r}s...[/dim]"))
+    worker.progress.connect(lambda c, t: logger.info(f"Captured {c}/{t}"))
+    worker.error.connect(lambda msg: logger.error(msg))
+
+    rich_print(
+        f"[cyan]Running macro: {repetitions} reps, area {width}x{height} at ({x},{y}), "
+        f"action={action.type}[/cyan]"
+    )
+    try:
+        worker.run()  # synchronous: runs the loop on the current thread
+        rich_print("[green]Macro completed[/green]")
+    except KeyboardInterrupt:
+        worker.stop()
+        rich_print("\n[yellow]Macro interrupted[/yellow]")
+        raise typer.Exit(130) from None
 
 
 @app.command(name="find-duplicates")

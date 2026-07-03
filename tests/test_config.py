@@ -88,6 +88,20 @@ class TestActionConfig:
         assert config.type == "key"
         assert config.key == "right"
 
+    def test_from_dict_invalid_type_falls_back_to_key(self):
+        config = ActionConfig.from_dict({"type": "mouse"})
+        assert config.type == "key"
+        assert config.key == "right"
+
+    def test_from_dict_empty_key_falls_back_to_default(self):
+        config = ActionConfig.from_dict({"type": "key", "key": ""})
+        assert config.type == "key"
+        assert config.key == "right"
+
+    def test_invalid_type_raises_on_direct_construction(self):
+        with pytest.raises(ValueError, match="invalid type"):
+            ActionConfig(type="mouse", key=None)
+
 
 class TestMacroConfig:
     def test_defaults(self):
@@ -129,6 +143,24 @@ class TestScreenshotConfig:
         config = ScreenshotConfig(directory=test_dir)
         config.ensure_directory()
         assert test_dir.exists()
+
+    def test_to_dict_serializes_relative_directory(self):
+        # A directory under the base dir must serialize back as a portable
+        # relative path, not an absolute machine path.
+        config = ScreenshotConfig(directory="./screenshots")
+        assert config.to_dict()["directory"] == "./screenshots"
+
+
+class TestGuiConfig:
+    def test_default_theme(self):
+        assert GuiConfig().theme == "dark"
+
+    def test_invalid_theme_falls_back_to_dark(self):
+        assert GuiConfig(theme="neon").theme == "dark"
+
+    def test_theme_round_trip(self):
+        restored = GuiConfig.from_dict(GuiConfig(theme="light").to_dict())
+        assert restored.theme == "light"
 
 
 class TestAppConfig:
@@ -186,9 +218,7 @@ class TestConfigManager:
     def test_save_and_reload(self, tmp_path: Path):
         config_path = tmp_path / "config.json"
         manager = ConfigManager()
-        manager._config = AppConfig(
-            macro=MacroConfig(repetitions=42)
-        )
+        manager._config = AppConfig(macro=MacroConfig(repetitions=42))
         assert manager.save(config_path) is True
         assert config_path.exists()
 
@@ -200,17 +230,42 @@ class TestConfigManager:
         manager._config = None
         assert manager.save() is False
 
-    def test_update(self):
-        manager = ConfigManager()
-        manager._config = AppConfig()
-        manager.update(macro=MacroConfig(repetitions=99))
-        assert manager.config.macro.repetitions == 99
-
-    def test_reload(self, tmp_config_file: Path):
+    def test_reload_rereads_last_loaded_path(self, tmp_config_file: Path):
         manager = ConfigManager()
         manager.load(tmp_config_file)
         manager._config.macro.repetitions = 999
         reloaded = manager.reload()
-        # After reload from the same default config path (not tmp),
-        # it should return defaults since _config_path is reset
-        assert reloaded is not None
+        # reload() re-reads the path that was last loaded, restoring file values.
+        assert reloaded.macro.repetitions == 300
+
+    def test_load_partial_invalid_preserves_other_settings(self, tmp_path: Path):
+        """A single bad nested field must not reset every other setting to defaults."""
+        config_data = {
+            "gui": {
+                "window_size": "800x600",
+                "default_area": {"top_left": [10, 20], "bottom_right": [100, 200]},
+            },
+            "macro": {
+                "default_repetitions": 42,
+                "default_delay": {"min": 2.0, "max": 4.0},
+                "action": {"type": "key", "key": ""},  # invalid: empty key
+                "initial_wait": 7.0,
+            },
+            "screenshot": {
+                "directory": str(tmp_path / "shots"),
+                "format": "jpg",
+                "prefix": "cap",
+            },
+        }
+        config_path = tmp_path / "config.json"
+        config_path.write_text(json.dumps(config_data), encoding="utf-8")
+
+        manager = ConfigManager()
+        config = manager.load(config_path)
+
+        # The empty key is coerced to the default, NOT a full config reset.
+        assert config.macro.action.key == "right"
+        assert config.macro.repetitions == 42
+        assert config.gui.window_size == "800x600"
+        assert config.macro.delay.min == 2.0
+        assert config.screenshot.prefix == "cap"

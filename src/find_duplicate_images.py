@@ -44,28 +44,40 @@ def _collect_image_hashes(
 def _group_similar_hashes(
     hash_dict: dict[imagehash.ImageHash, list[Path]], hash_threshold: int
 ) -> dict[imagehash.ImageHash, list[Path]]:
-    """유사한 해시들을 그룹화합니다."""
+    """유사한 해시들을 그룹화합니다 (single-linkage clustering).
+
+    후보 해시를 그룹의 seed 하나가 아니라 그룹에 이미 포함된 모든 해시와
+    비교한다. 이렇게 하면 a~b, b~c가 임계값 이내이고 a~c는 초과여도 셋이
+    하나의 그룹으로 묶여 진짜 유사 이미지가 누락되지 않으며, dict 순회 순서에
+    따라 결과가 달라지지 않는다.
+    """
     processed_hashes = set()
     combined_dict = defaultdict(list)
+    all_hashes = list(hash_dict.keys())
 
-    for hash1, files1 in hash_dict.items():
-        if hash1 in processed_hashes:
+    for seed in all_hashes:
+        if seed in processed_hashes:
             continue
 
-        processed_hashes.add(hash1)
-        similar_group = files1.copy()
+        processed_hashes.add(seed)
+        similar_group = list(hash_dict[seed])
+        group_hashes = [seed]
 
-        for hash2, files2 in hash_dict.items():
-            if hash2 in processed_hashes:
-                continue
-
-            # 해시 간의 차이가 임계값 이하인지 확인
-            if hash1 != hash2 and hash1 - hash2 <= hash_threshold:
-                similar_group.extend(files2)
-                processed_hashes.add(hash2)
+        # 그룹에 새 멤버가 추가되는 한 계속 확장한다.
+        changed = True
+        while changed:
+            changed = False
+            for candidate in all_hashes:
+                if candidate in processed_hashes:
+                    continue
+                if any(member - candidate <= hash_threshold for member in group_hashes):
+                    similar_group.extend(hash_dict[candidate])
+                    group_hashes.append(candidate)
+                    processed_hashes.add(candidate)
+                    changed = True
 
         if len(similar_group) > 1:
-            combined_dict[hash1] = similar_group
+            combined_dict[seed] = similar_group
 
     return combined_dict
 
@@ -132,14 +144,14 @@ def display_duplicate_groups(
         # 파일명에서 숫자 부분을 정수로 변환하여 자연스러운 정렬을 수행
         def extract_number(file_path):
             filename = file_path.name
-            # "screenshot_123.png"와 같은 이름에서 숫자 부분을 추출
+            # 숫자 파일과 비숫자 파일이 섞여도 sorted()가 int와 str을 비교하다
+            # TypeError로 죽지 않도록, 타입이 일관된 튜플 키를 돌려준다.
+            # 숫자 추출에 성공하면 (0, 숫자), 실패하면 (1, 파일명)으로 정렬한다.
             try:
-                # 파일명에서 숫자 부분 추출 (screenshot_123.png -> 123)
                 number_part = filename.split("_")[-1].split(".")[0]
-                return int(number_part)
+                return (0, int(number_part), "")
             except (IndexError, ValueError):
-                # 숫자 추출에 실패하면 파일명 그대로 반환
-                return filename
+                return (1, 0, filename)
 
         # 추출된 숫자를 기준으로 파일 경로 정렬
         sorted_files = sorted(file_list, key=extract_number)

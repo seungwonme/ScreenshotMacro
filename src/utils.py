@@ -51,15 +51,15 @@ def take_screenshot(
     command = ["screencapture", "-x", f"-R{x},{y},{width},{height}", str(file_path)]
 
     try:
-        result = subprocess.run(
+        # check=True raises CalledProcessError for any non-zero exit code, which
+        # is handled below; no explicit returncode check is needed.
+        subprocess.run(
             command,
             capture_output=True,
             text=True,
             check=True,
             timeout=10,
         )
-        if result.returncode != 0:
-            raise ScreenshotError(f"screencapture failed: {result.stderr}")
 
         if not file_path.exists():
             raise ScreenshotError(f"Screenshot file was not created: {file_path}")
@@ -72,9 +72,7 @@ def take_screenshot(
     except subprocess.CalledProcessError as e:
         raise ScreenshotError(f"Screenshot capture failed: {e.stderr}") from e
     except FileNotFoundError as e:
-        raise ScreenshotError(
-            "screencapture command not found. This tool requires macOS."
-        ) from e
+        raise ScreenshotError("screencapture command not found. This tool requires macOS.") from e
 
 
 def get_next_count(
@@ -212,9 +210,7 @@ def list_screenshots(config: ScreenshotConfig | None = None) -> list[Path]:
 
     extensions = {".png", ".jpg", ".jpeg"}
     screenshots = [
-        f
-        for f in screenshots_dir.rglob("*")
-        if f.is_file() and f.suffix.lower() in extensions
+        f for f in screenshots_dir.rglob("*") if f.is_file() and f.suffix.lower() in extensions
     ]
 
     return sorted(screenshots, key=lambda x: x.stat().st_mtime, reverse=True)

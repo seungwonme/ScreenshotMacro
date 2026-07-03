@@ -84,6 +84,8 @@ class ActionConfig:
     position: tuple[int, int] | None = None
 
     def __post_init__(self) -> None:
+        if self.type not in ("key", "click"):
+            raise ValueError(f"ActionConfig: invalid type '{self.type}', expected 'key' or 'click'")
         if self.type == "key" and not self.key:
             raise ValueError("ActionConfig: type='key' requires a non-empty key value")
 
@@ -97,10 +99,22 @@ class ActionConfig:
 
     @classmethod
     def from_dict(cls, data: dict) -> ActionConfig:
+        """Build an ActionConfig from raw config data, normalizing bad values.
+
+        Unknown action types fall back to 'key' and an empty key falls back to
+        'right' so that a single malformed field never raises during load() and
+        wipes the rest of the user's configuration.
+        """
         action_type = data.get("type", "key")
+        if action_type not in ("key", "click"):
+            logger.warning("Unknown action type '%s', falling back to 'key'", action_type)
+            action_type = "key"
+
+        if action_type == "key":
+            return cls(type="key", key=data.get("key") or "right", position=None)
         return cls(
-            type=action_type,
-            key=data.get("key", "right") if action_type == "key" else None,
+            type="click",
+            key=None,
             position=tuple(data["position"]) if data.get("position") else None,
         )
 
@@ -155,8 +169,15 @@ class ScreenshotConfig:
             self.directory = _get_base_dir() / self.directory
 
     def to_dict(self) -> dict:
+        # Serialize directories inside the project/base dir as relative paths so
+        # a committed config.json stays portable across machines and checkouts.
+        base = _get_base_dir()
+        try:
+            directory = f"./{self.directory.relative_to(base)}"
+        except ValueError:
+            directory = str(self.directory)
         return {
-            "directory": str(self.directory),
+            "directory": directory,
             "format": self.format,
             "prefix": self.prefix,
         }
@@ -180,11 +201,17 @@ class GuiConfig:
 
     window_size: str = "900x500"
     area: AreaConfig = field(default_factory=AreaConfig)
+    theme: str = "dark"
+
+    def __post_init__(self) -> None:
+        if self.theme not in ("dark", "light"):
+            self.theme = "dark"
 
     def to_dict(self) -> dict:
         return {
             "window_size": self.window_size,
             "default_area": self.area.to_dict(),
+            "theme": self.theme,
         }
 
     @classmethod
@@ -192,6 +219,7 @@ class GuiConfig:
         return cls(
             window_size=data.get("window_size", "900x500"),
             area=AreaConfig.from_dict(data.get("default_area", {})),
+            theme=data.get("theme", "dark"),
         )
 
 
@@ -261,6 +289,8 @@ class ConfigManager:
             with open(config_path, encoding="utf-8") as f:
                 data = json.load(f)
             self._config = AppConfig.from_dict(data)
+            # Remember the path we actually loaded so reload() re-reads it.
+            self._config_path = config_path
             logger.info(f"Config loaded from {config_path}")
             return self._config
         except json.JSONDecodeError as e:
@@ -288,15 +318,6 @@ class ConfigManager:
         except Exception as e:
             logger.error(f"Failed to save config: {e}")
             return False
-
-    def update(self, **kwargs) -> None:
-        """Update configuration values."""
-        if self._config is None:
-            self._config = AppConfig()
-
-        for key, value in kwargs.items():
-            if hasattr(self._config, key):
-                setattr(self._config, key, value)
 
     def reload(self) -> AppConfig:
         """Force reload configuration from file."""

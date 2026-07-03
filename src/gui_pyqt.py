@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import subprocess
 import sys
 
 from loguru import logger
 from pynput import keyboard, mouse
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
     QApplication,
@@ -27,195 +28,22 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from src.config import (
-    ActionConfig,
-    AreaConfig,
-    ConfigManager,
-    DelayConfig,
-    get_config,
-    save_config,
-)
-import subprocess
-
+from src.config import ActionConfig, AreaConfig, ConfigManager, DelayConfig, save_config
 from src.macro_pyqt import MacroWorker
-
-STYLESHEET = """
-QMainWindow {
-    background-color: #1e1e2e;
-}
-QWidget {
-    background-color: #1e1e2e;
-    color: #cdd6f4;
-    font-size: 13px;
-}
-QGroupBox {
-    background-color: #313244;
-    border: 1px solid #45475a;
-    border-radius: 8px;
-    margin-top: 14px;
-    padding: 16px 12px 12px 12px;
-    font-weight: bold;
-    font-size: 13px;
-}
-QGroupBox::title {
-    subcontrol-origin: margin;
-    left: 12px;
-    padding: 0 6px;
-    color: #89b4fa;
-}
-QLabel {
-    background: transparent;
-    color: #bac2de;
-    font-size: 13px;
-}
-QSpinBox, QDoubleSpinBox, QLineEdit {
-    background-color: #45475a;
-    border: 1px solid #585b70;
-    border-radius: 4px;
-    padding: 4px 8px;
-    color: #cdd6f4;
-    min-height: 28px;
-    selection-background-color: #89b4fa;
-}
-QSpinBox:focus, QDoubleSpinBox:focus, QLineEdit:focus {
-    border: 1px solid #89b4fa;
-}
-QSpinBox::up-button, QDoubleSpinBox::up-button {
-    subcontrol-origin: border;
-    subcontrol-position: top right;
-    width: 20px;
-    border-left: 1px solid #585b70;
-    border-bottom: 1px solid #585b70;
-    border-top-right-radius: 4px;
-    background: #585b70;
-}
-QSpinBox::down-button, QDoubleSpinBox::down-button {
-    subcontrol-origin: border;
-    subcontrol-position: bottom right;
-    width: 20px;
-    border-left: 1px solid #585b70;
-    border-bottom-right-radius: 4px;
-    background: #585b70;
-}
-QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {
-    width: 0; height: 0;
-    border-left: 4px solid transparent;
-    border-right: 4px solid transparent;
-    border-bottom: 5px solid #cdd6f4;
-}
-QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {
-    width: 0; height: 0;
-    border-left: 4px solid transparent;
-    border-right: 4px solid transparent;
-    border-top: 5px solid #cdd6f4;
-}
-QPushButton {
-    background-color: #45475a;
-    border: 1px solid #585b70;
-    border-radius: 6px;
-    padding: 6px 16px;
-    color: #cdd6f4;
-    min-height: 28px;
-    font-weight: 500;
-}
-QPushButton:hover {
-    background-color: #585b70;
-    border-color: #89b4fa;
-}
-QPushButton:pressed {
-    background-color: #313244;
-}
-QPushButton:disabled {
-    background-color: #313244;
-    color: #585b70;
-    border-color: #45475a;
-}
-QPushButton#startBtn {
-    background-color: #89b4fa;
-    color: #1e1e2e;
-    font-weight: bold;
-    border: none;
-}
-QPushButton#startBtn:hover {
-    background-color: #b4d0fb;
-}
-QPushButton#startBtn:pressed {
-    background-color: #74a8f7;
-}
-QPushButton#startBtn:disabled {
-    background-color: #45475a;
-    color: #585b70;
-}
-QPushButton#cancelBtn {
-    background-color: #f38ba8;
-    color: #1e1e2e;
-    font-weight: bold;
-    border: none;
-}
-QPushButton#cancelBtn:hover {
-    background-color: #f5a3b8;
-}
-QPushButton#cancelBtn:disabled {
-    background-color: #45475a;
-    color: #585b70;
-}
-QPushButton#saveBtn {
-    background-color: #a6e3a1;
-    color: #1e1e2e;
-    font-weight: bold;
-    border: none;
-}
-QPushButton#saveBtn:hover {
-    background-color: #b8eab4;
-}
-QRadioButton, QCheckBox {
-    background: transparent;
-    spacing: 6px;
-    color: #cdd6f4;
-}
-QRadioButton::indicator {
-    width: 14px; height: 14px;
-    border: 2px solid #585b70;
-    border-radius: 9px;
-    background: #45475a;
-}
-QRadioButton::indicator:checked {
-    background: #89b4fa;
-    border-color: #89b4fa;
-}
-QCheckBox::indicator {
-    width: 16px; height: 16px;
-    border: 2px solid #585b70;
-    border-radius: 3px;
-    background: #45475a;
-}
-QCheckBox::indicator:checked {
-    background: #89b4fa;
-    border-color: #89b4fa;
-}
-QProgressBar {
-    background-color: #313244;
-    border: 1px solid #45475a;
-    border-radius: 6px;
-    text-align: center;
-    color: #cdd6f4;
-    min-height: 22px;
-    font-size: 12px;
-}
-QProgressBar::chunk {
-    background-color: #89b4fa;
-    border-radius: 5px;
-}
-QStatusBar {
-    background-color: #181825;
-    color: #6c7086;
-    font-size: 12px;
-}
-"""
+from src.theme import stylesheet_for
 
 
 class ScreenshotGUI(QMainWindow):
     """Main GUI window for screenshot macro."""
+
+    # These are emitted from pynput listener threads. QTimer.singleShot does NOT
+    # fire on those threads (no Qt event loop), so selection callbacks must hop
+    # to the main thread via Qt's auto-queued signal/slot delivery instead.
+    _drag_selected = pyqtSignal()
+    _coordinate_picked = pyqtSignal(int, int)
+    _mouse_position_picked = pyqtSignal()
+    _key_captured = pyqtSignal(str)
+    _selection_cancelled = pyqtSignal()
 
     def __init__(self) -> None:
         super().__init__()
@@ -226,13 +54,17 @@ class ScreenshotGUI(QMainWindow):
         self._init_state()
         self._setup_ui()
         self._load_config_to_ui()
+        self._apply_theme()
+        # Size the window to fit all controls (avoids clipping the lower
+        # buttons/theme toggle), then place it.
+        self.adjustSize()
+        self.move(200, 100)
 
     def _init_window(self) -> None:
         """Initialize window properties."""
         self.setWindowTitle("Screenshot Macro")
-        self.setGeometry(200, 100, 520, 560)
         self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint)
-        self.setMinimumWidth(400)
+        self.setMinimumWidth(440)
         self.statusBar().showMessage("Ready")
 
     def _init_state(self) -> None:
@@ -247,6 +79,15 @@ class ScreenshotGUI(QMainWindow):
         self.mouse_listener: mouse.Listener | None = None
         self.key_capture_listener: keyboard.Listener | None = None
         self.capturing_key: bool = False
+        self._last_session_dir: str | None = None
+        self._theme: str = self._config.gui.theme
+
+        # Deliver listener-thread events to the main thread.
+        self._drag_selected.connect(self._update_area_from_drag)
+        self._coordinate_picked.connect(self._update_coordinate_from_click)
+        self._mouse_position_picked.connect(self._update_mouse_position)
+        self._key_captured.connect(self._update_captured_key)
+        self._selection_cancelled.connect(self._cancel_selection)
 
     def _setup_ui(self) -> None:
         """Set up the user interface."""
@@ -421,7 +262,21 @@ class ScreenshotGUI(QMainWindow):
         layout.addWidget(group)
 
     def _setup_progress(self, layout: QVBoxLayout) -> None:
-        """Set up progress bar."""
+        """Set up progress bar and run options."""
+        options_layout = QHBoxLayout()
+        self.auto_open_check = QCheckBox("Open folder when done")
+        options_layout.addWidget(self.auto_open_check)
+        options_layout.addStretch()
+        self.theme_btn = QPushButton()
+        self.theme_btn.setMaximumWidth(120)
+        self.theme_btn.clicked.connect(self._toggle_theme)
+        options_layout.addWidget(self.theme_btn)
+        layout.addLayout(options_layout)
+
+        self.session_label = QLabel("")
+        self.session_label.setStyleSheet("font-size: 11px;")
+        layout.addWidget(self.session_label)
+
         self.progress_bar = QProgressBar()
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(0)
@@ -463,11 +318,20 @@ class ScreenshotGUI(QMainWindow):
         self.bottom_right = (self.br_x_input.value(), self.br_y_input.value())
 
     def _sync_coord_inputs(self) -> None:
-        """Sync spin box values from internal coordinates."""
+        """Sync spin box values from internal coordinates.
+
+        Block valueChanged while writing so the spin boxes don't feed a
+        half-updated state back into self.top_left/bottom_right.
+        """
+        inputs = (self.tl_x_input, self.tl_y_input, self.br_x_input, self.br_y_input)
+        for widget in inputs:
+            widget.blockSignals(True)
         self.tl_x_input.setValue(self.top_left[0])
         self.tl_y_input.setValue(self.top_left[1])
         self.br_x_input.setValue(self.bottom_right[0])
         self.br_y_input.setValue(self.bottom_right[1])
+        for widget in inputs:
+            widget.blockSignals(False)
 
     def _load_config_to_ui(self) -> None:
         """Load configuration values to UI elements."""
@@ -490,6 +354,18 @@ class ScreenshotGUI(QMainWindow):
     def _toggle_random_delay(self, checked: bool) -> None:
         """Toggle random delay input."""
         self.delay_max_input.setEnabled(checked)
+
+    def _toggle_theme(self) -> None:
+        """Switch between dark and light themes."""
+        self._theme = "light" if self._theme == "dark" else "dark"
+        self._apply_theme()
+
+    def _apply_theme(self) -> None:
+        """Apply the current theme to the application and update the toggle label."""
+        app = QApplication.instance()
+        if app is not None:
+            app.setStyleSheet(stylesheet_for(self._theme))
+        self.theme_btn.setText("Light Mode" if self._theme == "dark" else "Dark Mode")
 
     def _toggle_action_type(self) -> None:
         """Toggle between keyboard and mouse action types."""
@@ -540,10 +416,10 @@ class ScreenshotGUI(QMainWindow):
                         x2, y2 = self.drag_end
                         self.top_left = (min(x1, x2), min(y1, y2))
                         self.bottom_right = (max(x1, x2), max(y1, y2))
-                        QTimer.singleShot(0, self._update_area_from_drag)
+                        self._drag_selected.emit()
                         return False
             elif button == mouse.Button.right:
-                QTimer.singleShot(0, self._cancel_selection)
+                self._selection_cancelled.emit()
                 return False
             return None
 
@@ -596,7 +472,7 @@ class ScreenshotGUI(QMainWindow):
 
         def on_click(x: int, y: int, button: mouse.Button, pressed: bool) -> bool | None:
             if button == mouse.Button.left and not pressed:
-                QTimer.singleShot(0, lambda: self._update_coordinate_from_click(x, y))
+                self._coordinate_picked.emit(int(x), int(y))
                 return False
             return None
 
@@ -626,7 +502,7 @@ class ScreenshotGUI(QMainWindow):
         def on_click(x: int, y: int, button: mouse.Button, pressed: bool) -> bool | None:
             if button == mouse.Button.left and not pressed:
                 self.mouse_position = (int(x), int(y))
-                QTimer.singleShot(0, self._update_mouse_position)
+                self._mouse_position_picked.emit()
                 return False
             return None
 
@@ -661,7 +537,7 @@ class ScreenshotGUI(QMainWindow):
                 except Exception:
                     key_name = str(key).replace("Key.", "")
 
-                QTimer.singleShot(0, lambda: self._update_captured_key(key_name))
+                self._key_captured.emit(key_name)
                 return False
             return True
 
@@ -706,13 +582,7 @@ class ScreenshotGUI(QMainWindow):
 
         self._config.macro.initial_wait = initial_wait
 
-        action_config = ActionConfig(
-            type="key" if self.keyboard_radio.isChecked() else "click",
-            key=self.keyboard_input.text() if self.keyboard_radio.isChecked() else None,
-            position=(
-                self.mouse_position if self.mouse_radio.isChecked() and self.mouse_position else None
-            ),
-        )
+        action_config = self._build_action_config()
 
         logger.info(
             f"Starting macro: {repetitions} reps, start delay {initial_wait}s, "
@@ -735,6 +605,7 @@ class ScreenshotGUI(QMainWindow):
         self.worker.error.connect(self._handle_error)
         self.worker.countdown.connect(self._update_countdown)
         self.worker.status_changed.connect(self._update_status)
+        self.worker.session_started.connect(self._on_session_started)
 
         self.worker.start()
 
@@ -760,6 +631,12 @@ class ScreenshotGUI(QMainWindow):
         }
         self.statusBar().showMessage(messages.get(status, status))
 
+    def _on_session_started(self, path: str) -> None:
+        """Show where the current run is saving screenshots."""
+        self._last_session_dir = path
+        self.session_label.setText(f"→ {path}")
+        self.session_label.setToolTip(path)
+
     def _macro_finished(self) -> None:
         """Handle macro completion."""
         self.start_btn.setEnabled(True)
@@ -767,6 +644,8 @@ class ScreenshotGUI(QMainWindow):
         self.cancel_btn.setEnabled(False)
         self.progress_bar.setValue(0)
         self.statusBar().showMessage("Completed")
+        if self.auto_open_check.isChecked() and self._last_session_dir:
+            subprocess.run(["open", self._last_session_dir], check=False)
 
     def _update_progress(self, count: int, total: int) -> None:
         """Update progress display."""
@@ -776,36 +655,54 @@ class ScreenshotGUI(QMainWindow):
         self.statusBar().showMessage(f"Capturing: {count}/{total}")
 
     def _handle_error(self, error_msg: str) -> None:
-        """Handle error from worker thread."""
+        """Surface a worker error in the status bar (non-blocking).
+
+        The worker aborts after repeated failures, so showing errors in the
+        status bar avoids the previous flood of stacked modal dialogs.
+        """
         logger.error(f"Macro error: {error_msg}")
-        QMessageBox.warning(self, "Macro Error", error_msg)
+        self.statusBar().showMessage(f"Error: {error_msg}")
 
     def _open_screenshots_folder(self) -> None:
         """Open the screenshots directory in Finder."""
         directory = self._config.screenshot.directory
         directory.mkdir(parents=True, exist_ok=True)
-        subprocess.run(["open", str(directory)])
+        subprocess.run(["open", str(directory)], check=False)
 
-    def _save_config(self) -> None:
-        """Save current settings to config file."""
+    def _build_action_config(self) -> ActionConfig:
+        """Build an ActionConfig from the current UI state.
+
+        Falls back to "right" when the keyboard field is empty so an empty input
+        never raises ValueError and aborts save/start/close handlers.
+        """
+        if self.keyboard_radio.isChecked():
+            key = self.keyboard_input.text().strip() or "right"
+            return ActionConfig(type="key", key=key)
+        return ActionConfig(
+            type="click",
+            key=None,
+            position=self.mouse_position if self.mouse_position else None,
+        )
+
+    def _apply_ui_to_config(self) -> None:
+        """Write the current UI values into the shared config object."""
         self._config.gui.area = AreaConfig(
             top_left=self.top_left,
             bottom_right=self.bottom_right,
         )
         self._config.gui.window_size = f"{self.width()}x{self.height()}"
-
         self._config.macro.repetitions = self.repetitions_input.value()
         self._config.macro.initial_wait = self.initial_wait_input.value()
         self._config.macro.delay = DelayConfig(
             min=self.delay_min_input.value(),
             max=self.delay_max_input.value(),
         )
-        self._config.macro.action = ActionConfig(
-            type="key" if self.keyboard_radio.isChecked() else "click",
-            key=self.keyboard_input.text() if self.keyboard_radio.isChecked() else None,
-            position=self.mouse_position if self.mouse_radio.isChecked() else None,
-        )
+        self._config.macro.action = self._build_action_config()
+        self._config.gui.theme = self._theme
 
+    def _save_config(self) -> None:
+        """Save current settings to config file."""
+        self._apply_ui_to_config()
         if save_config():
             logger.info("Config saved successfully")
             QMessageBox.information(self, "Config Saved", "Configuration saved successfully.")
@@ -815,22 +712,7 @@ class ScreenshotGUI(QMainWindow):
 
     def _save_config_silent(self) -> None:
         """Save current settings to config file without UI feedback."""
-        self._config.gui.area = AreaConfig(
-            top_left=self.top_left,
-            bottom_right=self.bottom_right,
-        )
-        self._config.gui.window_size = f"{self.width()}x{self.height()}"
-        self._config.macro.repetitions = self.repetitions_input.value()
-        self._config.macro.initial_wait = self.initial_wait_input.value()
-        self._config.macro.delay = DelayConfig(
-            min=self.delay_min_input.value(),
-            max=self.delay_max_input.value(),
-        )
-        self._config.macro.action = ActionConfig(
-            type="key" if self.keyboard_radio.isChecked() else "click",
-            key=self.keyboard_input.text() if self.keyboard_radio.isChecked() else None,
-            position=self.mouse_position if self.mouse_radio.isChecked() else None,
-        )
+        self._apply_ui_to_config()
         if save_config():
             logger.info("Config auto-saved on exit")
         else:
@@ -852,12 +734,19 @@ class ScreenshotGUI(QMainWindow):
 
     def closeEvent(self, event) -> None:
         """Clean up resources and auto-save config on close."""
-        self._save_config_silent()
+        try:
+            self._save_config_silent()
+        except Exception as e:
+            # Never let a save failure block listener/worker cleanup on exit.
+            logger.error(f"Failed to auto-save config on close: {e}")
         self._stop_mouse_listener()
         self._stop_key_listener()
         if self.worker and self.worker.isRunning():
             self.worker.stop()
-            self.worker.wait()
+            if not self.worker.wait(3000):
+                logger.warning("Worker did not stop in time; terminating")
+                self.worker.terminate()
+                self.worker.wait()
         super().closeEvent(event)
 
 
@@ -865,10 +754,12 @@ def run_gui() -> None:
     """Run the PyQt6 GUI application."""
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
-    app.setStyleSheet(STYLESHEET)
-    app.setFont(QFont("SF Pro Text", 13))
+    # Use the system UI font (avoids the missing "SF Pro Text" fallback warning).
+    font = QFont()
+    font.setPointSize(13)
+    app.setFont(font)
 
-    window = ScreenshotGUI()
+    window = ScreenshotGUI()  # applies the saved theme in its constructor
     window.show()
 
     sys.exit(app.exec())
