@@ -46,6 +46,7 @@ struct ContentView: View {
     @AppStorage("randomDelay") private var randomDelay = true
     @AppStorage("delayMin") private var delayMin = 1.0
     @AppStorage("delayMax") private var delayMax = 3.0
+    @AppStorage("dedupOnFinish") private var dedupOnFinish = true
     @AppStorage("fullWindow") private var fullWindow = true
     @AppStorage("areaString") private var areaString = ""  // "x,y,w,h" (창 기준 포인트)
     @AppStorage("outputBase") private var outputBase =
@@ -430,6 +431,11 @@ struct ContentView: View {
                 LabeledContent("예상 소요") {
                     Text(etaText(from: reps)).foregroundStyle(.secondary)
                 }
+                Toggle("끝나면 중복(로딩 중 등 동일 프레임) 자동 정리", isOn: $dedupOnFinish)
+                if dedupOnFinish {
+                    Text("완전히 같은 프레임의 첫 장만 남기고 나머지는 휴지통으로 이동합니다")
+                        .font(.caption).foregroundStyle(.tertiary)
+                }
             }
             Section("저장 위치") {
                 HStack {
@@ -797,6 +803,7 @@ struct ContentView: View {
         let dMax = randomDelay ? max(dMin, delayMax) : dMin
         let areaNow = fullWindow ? nil : area
         let baseNow = outputBase
+        let dedupNow = dedupOnFinish
         RunState.shared.stop = { macroTask?.cancel() }
 
         macroTask = Task {
@@ -841,10 +848,13 @@ struct ContentView: View {
                         try await Task.sleep(for: .seconds(Double.random(in: dMin...dMax)))
                     }
                 }
+                let removed = dedupNow ? pruneDuplicates(in: sessionDir) : 0
+                let kept = progress - removed
+                let dedupNote = removed > 0 ? " (중복 \(removed)장 휴지통 이동, \(kept)장 유지)" : ""
                 if Task.isCancelled {
-                    status = "중지됨 — \(progress)장 저장: \(sessionDir.path)"
+                    status = "중지됨 — \(progress)장 저장\(dedupNote): \(sessionDir.path)"
                 } else {
-                    status = "완료 — \(progress)장 저장: \(sessionDir.path)"
+                    status = "완료 — \(progress)장 저장\(dedupNote): \(sessionDir.path)"
                     NSSound(named: "Glass")?.play()
                     NSWorkspace.shared.open(sessionDir)
                 }
@@ -855,6 +865,22 @@ struct ContentView: View {
                 NSSound(named: "Basso")?.play()
             }
         }
+    }
+
+    /// 세션 폴더에서 완전히 같은 프레임의 첫 장만 남기고 나머지를 휴지통으로 이동. 반환은 이동한 장수.
+    /// threshold 0 = aHash 완전 일치 (로딩 중 등으로 사실상 동일한 프레임). 실패는 무시하고 진행.
+    private func pruneDuplicates(in dir: URL) -> Int {
+        let fm = FileManager.default
+        let files =
+            (try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil))?
+            .filter { $0.pathExtension.lowercased() == "png" } ?? []
+        var removed = 0
+        for group in duplicateGroups(in: files, threshold: 0) {
+            for url in group.dropFirst() where (try? fm.trashItem(at: url, resultingItemURL: nil)) != nil {
+                removed += 1
+            }
+        }
+        return removed
     }
 
     private func etaText(from remaining: Int) -> String {

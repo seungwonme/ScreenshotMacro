@@ -131,32 +131,13 @@ func runClean(dir: String, force: Bool) throws {
 func runFindDuplicates(dir: String, threshold: Int) throws {
     let files = try collectPNGs(in: dir)
     guard !files.isEmpty else { return print("캡처 없음: \(dir)") }
-    var hashed: [(url: URL, hash: UInt64)] = []
-    for f in files {
-        guard let img = loadImage(at: f), let h = averageHash(img) else {
-            FileHandle.standardError.write(Data("해시 실패: \(f.path)\n".utf8))
-            continue
-        }
-        hashed.append((f, h))
-    }
-    // 그리디 그룹핑: 기존 그룹의 아무 멤버와 임계값 이내면 합류 (Python 로직과 동일)
-    var groups: [[(url: URL, hash: UInt64)]] = []
-    for item in hashed {
-        if let i = groups.firstIndex(where: { g in
-            g.contains { hammingDistance($0.hash, item.hash) <= threshold }
-        }) {
-            groups[i].append(item)
-        } else {
-            groups.append([item])
-        }
-    }
-    let dupGroups = groups.filter { $0.count > 1 }
+    let dupGroups = duplicateGroups(in: files, threshold: threshold)
     guard !dupGroups.isEmpty else {
-        return print("중복 없음 (\(hashed.count)장 검사, 임계값 \(threshold))")
+        return print("중복 없음 (\(files.count)장 검사, 임계값 \(threshold))")
     }
     for (n, g) in dupGroups.enumerated() {
-        print("\n유사 그룹 #\(n + 1) (해시: \(String(g[0].hash, radix: 16))):")
-        for item in g { print("  \(item.url.path)") }
+        print("\n유사 그룹 #\(n + 1):")
+        for url in g { print("  \(url.path)") }
     }
     print("\n\(dupGroups.count)개 그룹, 중복 \(dupGroups.map { $0.count - 1 }.reduce(0, +))장")
 }
