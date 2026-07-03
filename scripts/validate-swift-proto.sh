@@ -42,6 +42,19 @@ else
   bad "capture"
 fi
 
+echo "== 4b. 영역 크롭 캡처 (--area 10,10,200,100 -> 2:1 비율)"
+if $BIN capture --pid "$TE_PID" --area "10,10,200,100" --out /tmp/smacro-area.png; then
+  W=$(sips -g pixelWidth /tmp/smacro-area.png 2>/dev/null | awk '/pixelWidth/ {print $2}')
+  H=$(sips -g pixelHeight /tmp/smacro-area.png 2>/dev/null | awk '/pixelHeight/ {print $2}')
+  if [ "${W:-0}" -eq $(( ${H:-1} * 2 )) ]; then
+    ok "영역 크롭 (${W}x${H}px)"
+  else
+    bad "영역 크롭 비율 이상 (${W}x${H}px, 기대 2:1)"
+  fi
+else
+  bad "영역 크롭 캡처"
+fi
+
 echo "== 5. 포커스 없는 키 전송 (space x5 -> TextEdit)"
 KEYFAIL=0
 for i in 1 2 3 4 5; do

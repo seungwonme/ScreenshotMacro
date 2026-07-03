@@ -25,8 +25,10 @@ swift run smacro-proto send-key --app 미리보기 --key right      # 키 전송
 
 # 전체 매크로: 캡처 + 키 전송 반복, 도는 동안 다른 작업 가능
 # --out 생략 시 captures/01, 02, ... 세션 디렉토리 자동 생성
+# --area x,y,w,h: 창 좌상단 기준 포인트 좌표로 본문만 크롭 (구버전의 영역 지정 대응,
+#                 화면 좌표가 아니라 창 기준이므로 창을 옮겨도 좌표가 안 깨짐)
 swift run smacro-proto macro --app 미리보기 --reps 300 --key right \
-  --wait 5 --delay-min 1 --delay-max 3
+  --area 100,110,350,180 --wait 5 --delay-min 1 --delay-max 3
 ```
 
 엔드투엔드 자동 검증: `../scripts/validate-swift-proto.sh` (2026-07-03 macOS 26.5.1에서 PASS 5/0)

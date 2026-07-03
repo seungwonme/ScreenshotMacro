@@ -42,15 +42,25 @@ func frontWindow(ofPid pid: pid_t) async throws -> SCWindow {
     return window
 }
 
-func capture(window: SCWindow, to url: URL) async throws {
+func capture(window: SCWindow, to url: URL, area: CGRect? = nil) async throws {
     let filter = SCContentFilter(desktopIndependentWindow: window)
     let config = SCStreamConfiguration()
     let scale = CGFloat(filter.pointPixelScale)
     config.width = Int(window.frame.width * scale)
     config.height = Int(window.frame.height * scale)
     config.showsCursor = false
-    let image = try await SCScreenshotManager.captureImage(
+    var image = try await SCScreenshotManager.captureImage(
         contentFilter: filter, configuration: config)
+    if let area {
+        // 창 좌상단 기준 포인트 좌표 -> 픽셀로 환산해 크롭 (창을 옮겨도 유지됨)
+        let pixelRect = CGRect(
+            x: area.origin.x * scale, y: area.origin.y * scale,
+            width: area.width * scale, height: area.height * scale)
+        guard let cropped = image.cropping(to: pixelRect) else {
+            throw die("--area가 창 범위를 벗어납니다 (창 크기: \(Int(window.frame.width))x\(Int(window.frame.height))pt)")
+        }
+        image = cropped
+    }
     guard
         let dest = CGImageDestinationCreateWithURL(
             url as CFURL, UTType.png.identifier as CFString, 1, nil)
@@ -122,6 +132,15 @@ func resolveTarget(_ args: [String]) throws -> pid_t {
     throw die("--app <이름> 또는 --pid <숫자>가 필요합니다 (list 명령으로 확인)")
 }
 
+func parseArea(_ args: [String]) throws -> CGRect? {
+    guard let raw = flagValue(args, "--area") else { return nil }
+    let parts = raw.split(separator: ",").compactMap { Double($0.trimmingCharacters(in: .whitespaces)) }
+    guard parts.count == 4, parts[2] > 0, parts[3] > 0 else {
+        throw die("--area 형식: x,y,w,h (창 좌상단 기준 포인트, 예: 100,110,350,180)")
+    }
+    return CGRect(x: parts[0], y: parts[1], width: parts[2], height: parts[3])
+}
+
 // Python 버전의 screenshots/01, 02, ... 세션 디렉토리 규칙과 동일
 func nextSessionDir(base: String) throws -> URL {
     let fm = FileManager.default
@@ -140,9 +159,11 @@ let usage = """
 
     사용법:
       smacro-proto list                                   캡처 가능한 윈도우 목록 (pid, 앱, 제목)
-      smacro-proto capture --app <이름> [--out <path>]    해당 앱의 최대 윈도우를 PNG로 캡처
+      smacro-proto capture --app <이름> [--out <path>] [--area x,y,w,h]
+                                                          해당 앱의 최대 윈도우를 PNG로 캡처
+                                                          --area: 창 좌상단 기준 포인트 영역만 크롭
       smacro-proto send-key --app <이름> --key <name>     해당 앱에만 키 이벤트 전송 (포커스 불필요)
-      smacro-proto macro --app <이름> [--reps N] [--key right]
+      smacro-proto macro --app <이름> [--reps N] [--key right] [--area x,y,w,h]
                          [--wait S] [--delay-min S] [--delay-max S] [--out <dir>]
                                                           캡처+키 전송 반복 (백그라운드 동작)
                                                           --out 생략 시 captures/01, 02, ... 자동 생성
@@ -181,10 +202,11 @@ struct SMacro {
 
         case "capture":
             let pid = try resolveTarget(args)
+            let area = try parseArea(args)
             try checkScreenRecording()
             let out = flagValue(args, "--out") ?? "capture_\(pid).png"
             let window = try await frontWindow(ofPid: pid)
-            try await capture(window: window, to: URL(fileURLWithPath: out))
+            try await capture(window: window, to: URL(fileURLWithPath: out), area: area)
             print("저장: \(out) (\(window.owningApplication?.applicationName ?? "?") — \(window.title ?? ""))")
 
         case "send-key":
@@ -196,6 +218,7 @@ struct SMacro {
 
         case "macro":
             let pid = try resolveTarget(args)
+            let area = try parseArea(args)
             try checkScreenRecording()
             try checkAccessibility()
             let reps = Int(flagValue(args, "--reps") ?? "10") ?? 10
@@ -218,7 +241,7 @@ struct SMacro {
                 let window = try await frontWindow(ofPid: pid)  // 매 회 조회: 창 이동/리사이즈 대응
                 let out = sessionDir.appendingPathComponent(
                     String(format: "screenshot_%03d.png", i))
-                try await capture(window: window, to: out)
+                try await capture(window: window, to: out, area: area)
                 try sendKey(key, toPid: pid)
                 print("[\(i)/\(reps)] \(out.lastPathComponent)")
                 if i < reps {
