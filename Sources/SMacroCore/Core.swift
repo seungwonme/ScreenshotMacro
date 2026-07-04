@@ -339,6 +339,75 @@ public func duplicateGroups(in files: [URL]) -> [[URL]] {
         .sorted { $0[0].path < $1[0].path }
 }
 
+// MARK: - 안티 패턴 매칭 (로딩 화면 등 '이렇게 생긴 캡처는 불필요' 기준 이미지)
+
+/// 안티 패턴 기준 이미지 보관 폴더. 캡처 베이스와 분리해 clean/stats/find-duplicates
+/// 집계에 섞이지 않는다. 없으면 생성.
+public func antiPatternsDir() throws -> URL {
+    let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        .appendingPathComponent("ScreenshotMacro/antipatterns")
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    return dir
+}
+
+/// 등록된 안티 패턴 기준 이미지 목록 (경로순)
+public func antiPatterns() throws -> [URL] {
+    try collectPNGs(in: antiPatternsDir().path)
+}
+
+/// 비교용 그레이스케일 64x80 지문. 종횡비는 무시하고 고정 크기로 리샘플 (양쪽 동일 조건 비교).
+public func grayFingerprint(at url: URL, width: Int = 64, height: Int = 80) -> [UInt8]? {
+    guard let image = fileThumbnail(at: url, maxPixel: 256),
+        let ctx = CGContext(
+            data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width,
+            space: CGColorSpaceCreateDeviceGray(),
+            bitmapInfo: CGImageAlphaInfo.none.rawValue)
+    else { return nil }
+    ctx.interpolationQuality = .medium
+    ctx.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+    guard let data = ctx.data else { return nil }
+    let count = width * height
+    return Array(UnsafeBufferPointer(start: data.bindMemory(to: UInt8.self, capacity: count), count: count))
+}
+
+/// 두 지문의 8x8 블록별 RMS 픽셀 차 중 최댓값 (0=동일, 255=최대). 길이 불일치는 매칭 불가로 무한대.
+/// 전역 평균 RMS는 저대비 패턴(흰 배경 + 연회색 아이콘)에서 여백 많은 실제 페이지와
+/// 구분이 안 된다 — 텍스트처럼 국소에 몰린 차이를 블록 최댓값으로 증폭해야 갈린다.
+func maxBlockRMS(_ a: [UInt8], _ b: [UInt8], width: Int = 64, height: Int = 80, block: Int = 8) -> Double {
+    guard a.count == b.count, a.count == width * height else { return .infinity }
+    var worst = 0.0
+    for by in stride(from: 0, to: height, by: block) {
+        for bx in stride(from: 0, to: width, by: block) {
+            var sum = 0.0
+            for y in by..<min(by + block, height) {
+                for x in bx..<min(bx + block, width) {
+                    let d = Double(a[y * width + x]) - Double(b[y * width + x])
+                    sum += d * d
+                }
+            }
+            worst = max(worst, (sum / Double(block * block)).squareRoot())
+        }
+    }
+    return worst
+}
+
+/// 안티 패턴 판정 임계값. 실측(전자책 캡처 4개 세션 ~700장, 로딩 화면 2종):
+/// 같은 로딩 화면의 재등장은 0, 가장 비슷한 실제 페이지(간지·속표지)는 8.6·38.2 — 4는 2배+ 마진.
+public let antiPatternRMSThreshold: Double = 4
+
+/// files 중 안티 패턴 기준 이미지와 거의 같은 프레임 목록 (입력 순서 유지).
+/// 중복 dedup(완전 동일 해시)과 달리 전부 삭제 대상 — 남길 한 장이 없다.
+public func antiPatternMatches(
+    in files: [URL], patterns: [URL], threshold: Double = antiPatternRMSThreshold
+) -> [URL] {
+    let prints = patterns.compactMap { grayFingerprint(at: $0) }
+    guard !prints.isEmpty else { return [] }
+    return files.filter { f in
+        guard let fp = grayFingerprint(at: f) else { return false }
+        return prints.contains { maxBlockRMS($0, fp) < threshold }
+    }
+}
+
 /// 파일에서 최대 변 길이 maxPixel의 축소 썸네일 생성 (원본 풀해상도 디코드를 피해 메모리 절약).
 public func fileThumbnail(at url: URL, maxPixel: Int = 400) -> CGImage? {
     guard let src = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }

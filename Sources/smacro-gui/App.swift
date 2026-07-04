@@ -576,7 +576,7 @@ struct ContentView: View {
                 LabeledContent("예상 소요") {
                     Text(etaText(from: reps)).foregroundStyle(.secondary)
                 }
-                Toggle("끝나면 중복(로딩 중 등 동일 프레임) 자동 정리", isOn: $dedupOnFinish)
+                Toggle("끝나면 중복·안티 패턴(로딩 화면 등) 자동 정리", isOn: $dedupOnFinish)
                 if dedupOnFinish {
                     Text("완전히 같은 프레임의 첫 장만 남기고 나머지는 휴지통으로 이동합니다")
                         .font(.caption).foregroundStyle(.tertiary)
@@ -1224,7 +1224,7 @@ struct ContentView: View {
                 }
                 let removed = dedupNow ? pruneDuplicates(in: sessionDir) : 0
                 let kept = runState.progress - removed
-                let dedupNote = removed > 0 ? " (중복 \(removed)장 휴지통 이동, \(kept)장 유지)" : ""
+                let dedupNote = removed > 0 ? " (중복·안티 패턴 \(removed)장 휴지통 이동, \(kept)장 유지)" : ""
                 if Task.isCancelled {
                     status = "중지됨 — \(runState.progress)장 저장\(dedupNote): \(sessionDir.path)"
                 } else {
@@ -1245,18 +1245,25 @@ struct ContentView: View {
         runState.stop = { task.cancel() }  // 뷰 전체가 아니라 task만 캡처
     }
 
-    /// 세션 폴더에서 바이트 완전 동일한(로딩 중 등으로 같은) 프레임의 첫 장만 남기고
-    /// 나머지를 휴지통으로 이동. 반환은 이동한 장수. 실패는 무시하고 진행.
+    /// 세션 폴더에서 바이트 완전 동일한 프레임의 첫 장만 남기고 나머지를 휴지통으로 이동.
+    /// 등록된 안티 패턴(로딩 화면 등)과 거의 같은 프레임은 전부 이동.
+    /// 반환은 이동한 장수. 실패는 무시하고 진행.
     private func pruneDuplicates(in dir: URL) -> Int {
         let fm = FileManager.default
         let files =
             (try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil))?
             .filter { $0.pathExtension.lowercased() == "png" } ?? []
+        // 안티 패턴 매칭은 파일이 남아 있을 때(삭제 전) 계산
+        let junk = antiPatternMatches(in: files, patterns: (try? antiPatterns()) ?? [])
         var removed = 0
         for group in duplicateGroups(in: files) {
             for url in group.dropFirst() where (try? fm.trashItem(at: url, resultingItemURL: nil)) != nil {
                 removed += 1
             }
+        }
+        // 중복 그룹으로 이미 이동된 파일은 trashItem 실패로 조용히 건너뜀
+        for url in junk where (try? fm.trashItem(at: url, resultingItemURL: nil)) != nil {
+            removed += 1
         }
         return removed
     }

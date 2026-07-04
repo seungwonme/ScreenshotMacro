@@ -108,6 +108,75 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(r.height, 50, accuracy: 4)
     }
 
+    // MARK: - 안티 패턴 매칭
+
+    func testAntiPatternMatching() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let teal = CGColor(red: 0.35, green: 0.78, blue: 0.75, alpha: 1)
+        let dark = CGColor(red: 0.1, green: 0.1, blue: 0.1, alpha: 1)
+
+        // 기준: 흰 배경 중앙에 원형 아이콘 (전자책 뷰어 로딩 화면 형태)
+        let pattern = dir.appendingPathComponent("pattern.png")
+        try writePage(to: pattern) { ctx, w, h in
+            ctx.setFillColor(teal)
+            ctx.fillEllipse(in: CGRect(x: w / 2 - 40, y: h / 2 - 40, width: 80, height: 80))
+        }
+        // 같은 로딩 화면의 재등장 (렌더링 미세 차이로 해시는 다른 별개 캡처)
+        let loading = dir.appendingPathComponent("loading.png")
+        try writePage(to: loading) { ctx, w, h in
+            ctx.setFillColor(CGColor(gray: 0.99, alpha: 1))
+            ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
+            ctx.setFillColor(teal)
+            ctx.fillEllipse(in: CGRect(x: w / 2 - 40, y: h / 2 - 40, width: 80, height: 80))
+        }
+        // 여백 많은 실제 페이지 (짧은 텍스트) - 삭제되면 안 됨
+        let sparse = dir.appendingPathComponent("sparse.png")
+        try writePage(to: sparse) { ctx, _, _ in
+            ctx.setFillColor(dark)
+            for row in 0..<3 {
+                ctx.fill(CGRect(x: 40, y: 60 + row * 24, width: 240, height: 10))
+            }
+        }
+
+        let files = [loading, sparse]
+        XCTAssertEqual(antiPatternMatches(in: files, patterns: [pattern]), [loading])
+        XCTAssertTrue(antiPatternMatches(in: files, patterns: []).isEmpty, "기준 없으면 매칭 없음")
+    }
+
+    func testAntiPatternLowContrastIconVsSparsePage() throws {
+        // 실측 회귀: 연회색 아이콘 로딩 화면은 전역 평균으로는 여백 많은 실제 페이지와
+        // 구분이 안 된다 - 블록 최댓값 지표가 실제 페이지의 국소 텍스트를 잡아내야 한다.
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let faint = CGColor(gray: 0.92, alpha: 1)
+
+        let pattern = dir.appendingPathComponent("pattern.png")
+        try writePage(to: pattern) { ctx, w, h in
+            ctx.setFillColor(faint)
+            ctx.fill(CGRect(x: w / 2 - 30, y: h / 2 - 30, width: 60, height: 60))
+        }
+        // 거의 빈 실제 페이지: 작은 제목 텍스트 한 줄 - 삭제되면 안 됨
+        let titlePage = dir.appendingPathComponent("title.png")
+        try writePage(to: titlePage) { ctx, w, _ in
+            ctx.setFillColor(CGColor(gray: 0.2, alpha: 1))
+            ctx.fill(CGRect(x: w / 2 - 50, y: 120, width: 100, height: 8))
+        }
+
+        XCTAssertTrue(antiPatternMatches(in: [titlePage], patterns: [pattern]).isEmpty)
+    }
+
+    func testMaxBlockRMS() {
+        let n = 64 * 80
+        let blank = [UInt8](repeating: 255, count: n)
+        XCTAssertEqual(maxBlockRMS(blank, blank), 0)
+        // 한 블록(8x8)만 완전히 다름 -> 전역 평균이면 255*sqrt(64/5120)=28.5지만 블록 최댓값은 255
+        var oneBlock = blank
+        for y in 0..<8 { for x in 0..<8 { oneBlock[y * 64 + x] = 0 } }
+        XCTAssertEqual(maxBlockRMS(blank, oneBlock), 255)
+        XCTAssertEqual(maxBlockRMS(blank, [0]), .infinity)  // 길이 불일치
+    }
+
     // MARK: - 키 테이블
 
     func testKeyCodesContainDocumentedKeys() {
@@ -124,6 +193,21 @@ final class CoreTests: XCTestCase {
             .appendingPathComponent("smacro-tests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
+    }
+
+    /// 흰 배경 320x400 페이지를 그려 PNG로 저장 (안티 패턴 테스트용)
+    private func writePage(to url: URL, draw: (CGContext, Int, Int) -> Void) throws {
+        let w = 320
+        let h = 400
+        let ctx = try XCTUnwrap(
+            CGContext(
+                data: nil, width: w, height: h, bitsPerComponent: 8,
+                bytesPerRow: w * 4, space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
+        draw(ctx, w, h)
+        try savePNG(try XCTUnwrap(ctx.makeImage()), to: url)
     }
 
     /// opaque 영역(좌상단 원점 픽셀 좌표)만 흰색, 나머지는 투명한 테스트 이미지
