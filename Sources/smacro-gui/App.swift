@@ -993,9 +993,11 @@ struct ContentView: View {
                     runState.progress = i
                     status = windowFallbackNote ?? "진행 중 — 다른 작업을 하셔도 됩니다"
                     if i < repsNow {
+                        // 중지가 이 대기 중 걸려도 CancellationError로 catch에 빠지지 않고
+                        // 아래 자동 중복 정리/세션 경로 status까지 정상 수행 (main의 #4와 동일 취지)
                         do {
                             try await Task.sleep(for: .seconds(Double.random(in: dMin...dMax)))
-                        } catch is CancellationError { break }  // 중지가 딜레이 중이어도 아래 정리를 수행
+                        } catch is CancellationError { break }
                     }
                 }
                 let removed = dedupNow ? pruneDuplicates(in: sessionDir) : 0
