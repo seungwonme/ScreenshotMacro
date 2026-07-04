@@ -9,7 +9,10 @@ let package = Package(
         .executableTarget(
             name: "smacro-proto", dependencies: ["SMacroCore"], path: "Sources/smacro-proto"),
         .executableTarget(
-            name: "smacro-gui", dependencies: ["SMacroCore"], path: "Sources/smacro-gui"),
+            name: "smacro-gui",
+            dependencies: ["SMacroCore"],
+            path: "Sources/smacro-gui",
+            resources: [.process("Resources")]),
         .testTarget(
             name: "SMacroCoreTests", dependencies: ["SMacroCore"],
             path: "Tests/SMacroCoreTests"),

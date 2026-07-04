@@ -16,7 +16,8 @@ DEST="${1:-$HOME/Applications}"
 
 echo "▸ release 빌드"
 swift build -c release
-BIN="$(swift build -c release --show-bin-path)/smacro-gui"
+BIN_DIR="$(swift build -c release --show-bin-path)"
+BIN="$BIN_DIR/smacro-gui"
 
 APP="$DEST/$APP_NAME.app"
 mkdir -p "$DEST"
@@ -25,7 +26,13 @@ if [[ "$APP" == *"/$APP_NAME.app" && -d "$APP" ]]; then
     /bin/rm -rf -- "$APP"
 fi
 mkdir -p "$APP/Contents/MacOS"
+mkdir -p "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/$APP_NAME"
+cp "Resources/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
+for bundle in "$BIN_DIR"/*.bundle; do
+    [[ -e "$bundle" ]] || continue
+    cp -R "$bundle" "$APP/Contents/Resources/"
+done
 
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -36,6 +43,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>CFBundleIdentifier</key><string>$BUNDLE_ID</string>
     <key>CFBundleName</key><string>$APP_NAME</string>
     <key>CFBundleDisplayName</key><string>Screenshot Macro</string>
+    <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleShortVersionString</key><string>1.0.0</string>
     <key>CFBundleVersion</key><string>1</string>

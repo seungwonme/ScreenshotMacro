@@ -12,6 +12,12 @@ import SwiftUI
 struct SMacroApp: App {
     init() {
         initWindowServerConnection()
+        if let iconURL = Bundle.main.url(forResource: "AppIcon", withExtension: "png")
+            ?? Bundle.module.url(forResource: "AppIcon", withExtension: "png"),
+            let icon = NSImage(contentsOf: iconURL)
+        {
+            NSApplication.shared.applicationIconImage = icon
+        }
         // swift run(터미널 실행)에서는 앱 번들이 아니라 도크/포커스가 없음 -> 일반 앱으로 승격
         NSApplication.shared.setActivationPolicy(.regular)
         NSApplication.shared.activate(ignoringOtherApps: true)
