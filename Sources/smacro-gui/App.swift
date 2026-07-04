@@ -862,7 +862,10 @@ struct ContentView: View {
                     RunState.shared.progress = i
                     status = "진행 중 — 다른 작업을 하셔도 됩니다"
                     if i < repsNow {
-                        try await Task.sleep(for: .seconds(Double.random(in: dMin...dMax)))
+                        // 정지가 이 대기 중 걸리면 CancellationError가 바로 던져져
+                        // 아래 자동 중복 정리(dedupNow)를 건너뛰고 catch로 빠진다.
+                        // try?로 삼켜 다음 루프의 isCancelled 체크로 정상 종료시킨다.
+                        try? await Task.sleep(for: .seconds(Double.random(in: dMin...dMax)))
                     }
                 }
                 let removed = dedupNow ? pruneDuplicates(in: sessionDir) : 0
