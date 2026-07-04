@@ -13,11 +13,11 @@ SwiftPM 패키지, 타깃 3개:
   - 입력: `sendKey(code:toPid:)`/`sendClick(at:window:toPid:)`(백그라운드), `sendKeyGlobal`/`sendClickGlobal`(전면 모드, HID 전역), `ensureFrontmost`
   - 클릭은 AXPress 우선(Electron은 `AXManualAccessibility`로 AX 트리 강제 활성화, press 지원 조상 6단계 탐색) -> CGEvent 폴백. 반환값이 사용된 방식("AXPress"/"CGEvent")
   - 유틸: `nextSessionDir`(01, 02, ... 자동 번호), `fileHash`(파일 바이트 SHA256, 완전 동일 캡처만 탐지 - aHash는 문서/전자책처럼 레이아웃 균일한 캡처에서 오탐 심해 폐기), `collectPNGs`/`duplicateGroups`(중복 그룹핑, CLI·GUI 공용), `fileThumbnail`(축소 썸네일 디코드), `resolveApp`(이름 부분 일치, 정확 일치 > 도크 앱 랭킹)
-  - 안티 패턴: 사용자가 등록한 기준 이미지(전자책 로딩 화면 등)와 거의 같은 캡처를 정리 대상으로 판정 - `antiPatternsDir`(`~/Library/Application Support/ScreenshotMacro/antipatterns/`, 캡처 폴더와 분리해 clean/stats에 안 섞임), `grayFingerprint`(64x80 그레이 지문, 파일당 512px 썸네일 1회 디코드), `maxBlockRMS`(8x8 블록별 RMS 최댓값 - 전역 평균 RMS는 저대비 로딩 아이콘과 여백 많은 실제 페이지가 안 갈려 폐기), `antiPatternMatches`(임계값 4, 실측: 재등장 0 vs 최근접 실제 페이지 8.6). 중복 dedup과 달리 일치 프레임 전부 삭제(남길 한 장이 없음)
-  - 팝업(모달) 안티 패턴: 기준 이미지 중앙 밴드(`popupCrop`, 가로 28~72% x 세로 42~58%)에 어두운 픽셀이 있으면 모달형으로 간주, 배경 페이지가 매번 달라도 밴드만 비교해 매칭 - "마지막 페이지입니다" 팝업 프레임용. 실측: 팝업 프레임 밴드 거리 0 vs 최근접 실제 페이지 39.7. 모달형 패턴이 없으면 밴드 계산 자체를 건너뜀
-- `Sources/smacro-gui/App.swift`: SwiftUI 위저드 GUI. 스텝 4개(대상 창 썸네일 그리드 -> 영역 드래그 -> 매크로 설정 -> 실행), 상단 스텝 바 초록 체크(이동은 푸터 '다음'과 동일 게이팅), 테스트 1회, 진행 바 + 실시간 컷 + 플로팅 HUD(카운트다운/진행/오류 표시). 영역 선택은 Shottr식 조정 지원: 내부 드래그 이동/핸들 8개 리사이즈/크기 라벨(pt), 중앙 정렬(실제 보이는 콘텐츠 기준), 키우기(⇧])/줄이기(⇧[), 방향키 이동(1pt, ⇧=10pt), ⇧드래그 새로 그리기, 더블클릭(선택 밖) 해제. 화면 기록 권한이 없으면 1단계가 설정 딥링크 포함 빈 상태 뷰로 안내. 매크로 종료 후 '끝나면 중복·안티 패턴 자동 정리' 토글(기본 ON, `pruneDuplicates`)이 세션의 동일 프레임과 등록된 안티 패턴 일치 프레임을 정리. 설정은 `@AppStorage`(UserDefaults). 매크로 루프의 블로킹 구간(savePNG, usleep 전송)은 `Task.detached`로 메인 밖에서 실행.
+  - 정크 프레임: 사용자가 등록한 기준 이미지(전자책 로딩 화면 등)와 거의 같은 캡처를 정리 대상으로 판정 - `junkPatternsDir`(`~/Library/Application Support/ScreenshotMacro/junk/`, 캡처 폴더와 분리해 clean/stats에 안 섞임), `grayFingerprint`(64x80 그레이 지문, 파일당 512px 썸네일 1회 디코드), `maxBlockRMS`(8x8 블록별 RMS 최댓값 - 전역 평균 RMS는 저대비 로딩 아이콘과 여백 많은 실제 페이지가 안 갈려 폐기), `junkMatches`(임계값 4, 실측: 재등장 0 vs 최근접 실제 페이지 8.6). 중복 dedup과 달리 일치 프레임 전부 삭제(남길 한 장이 없음)
+  - 팝업(모달) 정크 프레임: 기준 이미지 중앙 밴드(`popupCrop`, 가로 28~72% x 세로 42~58%)에 어두운 픽셀이 있으면 모달형으로 간주, 배경 페이지가 매번 달라도 밴드만 비교해 매칭 - "마지막 페이지입니다" 팝업 프레임용. 실측: 팝업 프레임 밴드 거리 0 vs 최근접 실제 페이지 39.7. 모달형 패턴이 없으면 밴드 계산 자체를 건너뜀
+- `Sources/smacro-gui/App.swift`: SwiftUI 위저드 GUI. 스텝 4개(대상 창 썸네일 그리드 -> 영역 드래그 -> 매크로 설정 -> 실행), 상단 스텝 바 초록 체크(이동은 푸터 '다음'과 동일 게이팅), 테스트 1회, 진행 바 + 실시간 컷 + 플로팅 HUD(카운트다운/진행/오류 표시). 영역 선택은 Shottr식 조정 지원: 내부 드래그 이동/핸들 8개 리사이즈/크기 라벨(pt), 중앙 정렬(실제 보이는 콘텐츠 기준), 키우기(⇧])/줄이기(⇧[), 방향키 이동(1pt, ⇧=10pt), ⇧드래그 새로 그리기, 더블클릭(선택 밖) 해제. 화면 기록 권한이 없으면 1단계가 설정 딥링크 포함 빈 상태 뷰로 안내. 매크로 종료 후 '끝나면 중복·정크 프레임 자동 정리' 토글(기본 ON, `pruneDuplicates`)이 세션의 동일 프레임과 등록된 정크 기준에 일치하는 프레임을 정리. 설정은 `@AppStorage`(UserDefaults). 매크로 루프의 블로킹 구간(savePNG, usleep 전송)은 `Task.detached`로 메인 밖에서 실행.
 - `Sources/smacro-gui/DuplicatesSheet.swift`: 중복 정리 시트(`DuplicatesSheetView`, 자체 @State). 미리보기 체크박스, 전체 선택 기본 ON, 그룹당 1장 유지, 휴지통 삭제.
-- `Sources/smacro-proto/SMacro.swift`: CLI. `list`(윈도우) / `capture` / `send-key` / `macro` / `captures`(세션 현황) / `stats` / `clean`(휴지통) / `find-duplicates`(`--delete`로 그룹당 1장 남기고 휴지통, 안티 패턴 일치는 전부 휴지통) / `antipattern add|list`(기준 이미지 등록·목록).
+- `Sources/smacro-proto/SMacro.swift`: CLI. `list`(윈도우) / `capture` / `send-key` / `macro` / `captures`(세션 현황) / `stats` / `clean`(휴지통) / `find-duplicates`(`--delete`로 그룹당 1장 남기고 휴지통, 정크 프레임 일치는 전부 휴지통) / `junk add|list`(기준 이미지 등록·목록).
 
 ## macOS 함정 (이 프로젝트에서 실측 확인된 것)
 
@@ -45,7 +45,7 @@ scripts/validate-swift-proto.sh   # E2E 검증 (권한 있는 터미널에서, T
 
 ## Change Log
 
-- 2026-07-05: **안티 패턴 정리.** 전자책 로딩 화면처럼 '이렇게 생긴 캡처는 불필요' 기준 이미지를 등록하면 CLI `find-duplicates`와 GUI 자동 정리가 일치 프레임을 전부 휴지통으로 이동. 완전 동일 해시 dedup으로는 로딩 프레임이 픽셀 미세 차이로 안 잡히고, 전역 RMS는 저대비 아이콘에서 실제 페이지와 안 갈려(실측: 간지 페이지가 임계값 안쪽) 블록 최댓값 RMS로 판정. 팝업형(배경이 매번 다른 "마지막 페이지" 모달)은 중앙 밴드만 비교하는 경로로 커버, 지문 디코드는 파일당 썸네일 1회로 통일(전 라이브러리 스캔 장당 35ms -> 22ms).
+- 2026-07-05: **정크 프레임 정리.** 전자책 로딩 화면처럼 '이렇게 생긴 캡처는 불필요' 기준 이미지를 등록하면 CLI `find-duplicates`와 GUI 자동 정리가 일치 프레임을 전부 휴지통으로 이동. 완전 동일 해시 dedup으로는 로딩 프레임이 픽셀 미세 차이로 안 잡히고, 전역 RMS는 저대비 아이콘에서 실제 페이지와 안 갈려(실측: 간지 페이지가 임계값 안쪽) 블록 최댓값 RMS로 판정. 팝업형(배경이 매번 다른 "마지막 페이지" 모달)은 중앙 밴드만 비교하는 경로로 커버, 지문 디코드는 파일당 썸네일 1회로 통일(전 라이브러리 스캔 장당 35ms -> 22ms).
 
 - 2026-07-04: **영역 선택 조정 기능 (Shottr식).** 드래그 이동/핸들 리사이즈/크기 라벨/중앙 정렬/⇧] ⇧[ 크기 조절/⇧드래그 새로 그리기/더블클릭 해제. 제스처 취소 잔존 상태는 `@GestureState` onChange로 정리, 커밋 좌표는 창 경계로 클램프.
 - 2026-07-04: **오픈소스 정리 + 리뷰 지적 일괄 반영.** LICENSE(MIT) 추가, prompts/ 세션 로그 추적 해제, 타 레포 유래 .github 보일러플레이트 제거, swift build CI 추가. 코드: reps<=0 크래시 클램프(GUI/CLI), 권한 온보딩(딥링크+AX 프롬프트), HUD 오류 상태 잔류, 창 폴백 통지, 창 크기 변경 시 좌표 초기화, testPassed 무효화 일관화, 창 필터 `captureTargets()`로 Core 통합, 접근성 라벨, DuplicatesSheet 분리.

@@ -108,9 +108,9 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(r.height, 50, accuracy: 4)
     }
 
-    // MARK: - 안티 패턴 매칭
+    // MARK: - 정크 프레임 매칭
 
-    func testAntiPatternMatching() throws {
+    func testJunkMatching() throws {
         let dir = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: dir) }
         let teal = CGColor(red: 0.35, green: 0.78, blue: 0.75, alpha: 1)
@@ -140,11 +140,11 @@ final class CoreTests: XCTestCase {
         }
 
         let files = [loading, sparse]
-        XCTAssertEqual(antiPatternMatches(in: files, patterns: [pattern]), [loading])
-        XCTAssertTrue(antiPatternMatches(in: files, patterns: []).isEmpty, "기준 없으면 매칭 없음")
+        XCTAssertEqual(junkMatches(in: files, patterns: [pattern]), [loading])
+        XCTAssertTrue(junkMatches(in: files, patterns: []).isEmpty, "기준 없으면 매칭 없음")
     }
 
-    func testAntiPatternLowContrastIconVsSparsePage() throws {
+    func testJunkLowContrastIconVsSparsePage() throws {
         // 실측 회귀: 연회색 아이콘 로딩 화면은 전역 평균으로는 여백 많은 실제 페이지와
         // 구분이 안 된다 - 블록 최댓값 지표가 실제 페이지의 국소 텍스트를 잡아내야 한다.
         let dir = try makeTempDir()
@@ -163,10 +163,10 @@ final class CoreTests: XCTestCase {
             ctx.fill(CGRect(x: w / 2 - 50, y: 120, width: 100, height: 8))
         }
 
-        XCTAssertTrue(antiPatternMatches(in: [titlePage], patterns: [pattern]).isEmpty)
+        XCTAssertTrue(junkMatches(in: [titlePage], patterns: [pattern]).isEmpty)
     }
 
-    func testAntiPatternPopupIgnoresChangingPageBehindIt() throws {
+    func testJunkPopupIgnoresChangingPageBehindIt() throws {
         let dir = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: dir) }
 
@@ -186,7 +186,7 @@ final class CoreTests: XCTestCase {
         }
 
         XCTAssertEqual(
-            antiPatternMatches(in: [popupOnDifferentPage, realPage], patterns: [pattern]),
+            junkMatches(in: [popupOnDifferentPage, realPage], patterns: [pattern]),
             [popupOnDifferentPage])
     }
 
@@ -219,7 +219,7 @@ final class CoreTests: XCTestCase {
         return dir
     }
 
-    /// 흰 배경 320x400 페이지를 그려 PNG로 저장 (안티 패턴 테스트용)
+    /// 흰 배경 320x400 페이지를 그려 PNG로 저장 (정크 프레임 테스트용)
     private func writePage(to url: URL, draw: (CGContext, Int, Int) -> Void) throws {
         let w = 320
         let h = 400

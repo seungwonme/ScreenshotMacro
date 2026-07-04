@@ -339,20 +339,20 @@ public func duplicateGroups(in files: [URL]) -> [[URL]] {
         .sorted { $0[0].path < $1[0].path }
 }
 
-// MARK: - 안티 패턴 매칭 (로딩 화면 등 '이렇게 생긴 캡처는 불필요' 기준 이미지)
+// MARK: - 정크 프레임 매칭 (로딩 화면 등 '이렇게 생긴 캡처는 불필요' 기준 이미지)
 
-/// 안티 패턴 기준 이미지 보관 폴더. 캡처 베이스와 분리해 clean/stats/find-duplicates
+/// 정크 프레임 기준 이미지 보관 폴더. 캡처 베이스와 분리해 clean/stats/find-duplicates
 /// 집계에 섞이지 않는다. 없으면 생성.
-public func antiPatternsDir() throws -> URL {
+public func junkPatternsDir() throws -> URL {
     let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        .appendingPathComponent("ScreenshotMacro/antipatterns")
+        .appendingPathComponent("ScreenshotMacro/junk")
     try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
     return dir
 }
 
-/// 등록된 안티 패턴 기준 이미지 목록 (경로순)
-public func antiPatterns() throws -> [URL] {
-    try collectPNGs(in: antiPatternsDir().path)
+/// 등록된 정크 프레임 기준 이미지 목록 (경로순)
+public func junkPatterns() throws -> [URL] {
+    try collectPNGs(in: junkPatternsDir().path)
 }
 
 /// 디코드된 이미지에서 그레이스케일 지문 추출. crop은 이미지 기준 상대 좌표(0~1, 좌상단 원점).
@@ -414,13 +414,13 @@ func maxBlockRMS(_ a: [UInt8], _ b: [UInt8], width: Int = 64, height: Int = 80, 
     return worst
 }
 
-/// 안티 패턴 판정 임계값. 실측(전자책 캡처 4개 세션 ~700장, 로딩 화면 2종):
+/// 정크 프레임 판정 임계값. 실측(전자책 캡처 4개 세션 ~700장, 로딩 화면 2종):
 /// 같은 로딩 화면의 재등장은 0, 가장 비슷한 실제 페이지(간지·속표지)는 8.6·38.2 — 4는 2배+ 마진.
-public let antiPatternRMSThreshold: Double = 4
+public let junkRMSThreshold: Double = 4
 
 private let popupCrop = CGRect(x: 0.28, y: 0.42, width: 0.44, height: 0.16)
 
-private struct AntiPatternPrint {
+private struct JunkPrint {
     let full: [UInt8]
     let popup: [UInt8]?
 }
@@ -431,15 +431,15 @@ private func popupFingerprintIfModalLike(at url: URL) -> [UInt8]? {
     return fp.filter { $0 < 120 }.count >= 10 ? fp : nil
 }
 
-/// files 중 안티 패턴 기준 이미지와 거의 같은 프레임 목록 (입력 순서 유지).
+/// files 중 정크 프레임 기준 이미지와 거의 같은 프레임 목록 (입력 순서 유지).
 /// 중복 dedup(완전 동일 해시)과 달리 전부 삭제 대상 — 남길 한 장이 없다.
 /// 팝업(모달) 밴드 비교는 모달형 패턴이 있을 때만, 파일당 디코드는 썸네일 1회만 수행.
-public func antiPatternMatches(
-    in files: [URL], patterns: [URL], threshold: Double = antiPatternRMSThreshold
+public func junkMatches(
+    in files: [URL], patterns: [URL], threshold: Double = junkRMSThreshold
 ) -> [URL] {
-    let prints = patterns.compactMap { pattern -> AntiPatternPrint? in
+    let prints = patterns.compactMap { pattern -> JunkPrint? in
         guard let full = grayFingerprint(at: pattern) else { return nil }
-        return AntiPatternPrint(full: full, popup: popupFingerprintIfModalLike(at: pattern))
+        return JunkPrint(full: full, popup: popupFingerprintIfModalLike(at: pattern))
     }
     guard !prints.isEmpty else { return [] }
     let hasModalPattern = prints.contains { $0.popup != nil }

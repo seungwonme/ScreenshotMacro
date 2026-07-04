@@ -59,11 +59,11 @@ let usage = """
       smacro-proto stats [--dir D]                        전체 통계
       smacro-proto clean [--dir D] [-f]                   캡처 전체 삭제(휴지통, -f는 확인 생략)
       smacro-proto find-duplicates [--dir D] [--delete] [-f]
-                                                          중복 캡처 탐지 (바이트 완전 동일) + 안티 패턴 일치 탐지
-                                                          --delete: 중복은 그룹당 첫 장만 남기고, 안티 패턴 일치는
+                                                          중복 캡처 탐지 (바이트 완전 동일) + 정크 프레임 일치 탐지
+                                                          --delete: 중복은 그룹당 첫 장만 남기고, 정크 프레임 일치는
                                                           전부 휴지통(-f는 확인 생략)
-      smacro-proto antipattern add <이미지.png>            로딩 화면 등 '이렇게 생긴 캡처는 불필요' 기준 이미지 등록
-      smacro-proto antipattern list                       등록된 안티 패턴 목록 (제거는 해당 파일 삭제)
+      smacro-proto junk add <이미지.png>            로딩 화면 등 '이렇게 생긴 캡처는 불필요' 기준 이미지 등록
+      smacro-proto junk list                       등록된 정크 프레임 목록 (제거는 해당 파일 삭제)
     """
 
 // MARK: - 유틸리티 명령
@@ -123,10 +123,10 @@ func runFindDuplicates(dir: String, delete: Bool, force: Bool) throws {
     let files = try collectPNGs(in: dir)
     guard !files.isEmpty else { return print("캡처 없음: \(dir)") }
     let dupGroups = duplicateGroups(in: files)
-    let patterns = (try? antiPatterns()) ?? []
-    let junk = antiPatternMatches(in: files, patterns: patterns)
+    let patterns = (try? junkPatterns()) ?? []
+    let junk = junkMatches(in: files, patterns: patterns)
     guard !dupGroups.isEmpty || !junk.isEmpty else {
-        return print("중복·안티 패턴 일치 없음 (\(files.count)장 검사, 안티 패턴 \(patterns.count)개 기준)")
+        return print("중복·정크 프레임 일치 없음 (\(files.count)장 검사, 정크 프레임 \(patterns.count)개 기준)")
     }
     for (n, g) in dupGroups.enumerated() {
         print("\n동일 그룹 #\(n + 1):")
@@ -135,15 +135,15 @@ func runFindDuplicates(dir: String, delete: Bool, force: Bool) throws {
         }
     }
     if !junk.isEmpty {
-        print("\n안티 패턴 일치 (전부 삭제 대상):")
+        print("\n정크 프레임 일치 (전부 삭제 대상):")
         for url in junk { print("  \(url.path)") }
     }
     let redundant = dupGroups.map { $0.count - 1 }.reduce(0, +)
-    print("\n\(dupGroups.count)개 그룹 중복 \(redundant)장, 안티 패턴 일치 \(junk.count)장")
+    print("\n\(dupGroups.count)개 그룹 중복 \(redundant)장, 정크 프레임 일치 \(junk.count)장")
     guard delete else { return }
 
     if !force {
-        print("\n중복은 그룹당 첫 장만 남기고, 안티 패턴 일치는 전부 — 최대 \(redundant + junk.count)장을 휴지통으로 이동합니다. 계속할까요? [y/N] ", terminator: "")
+        print("\n중복은 그룹당 첫 장만 남기고, 정크 프레임 일치는 전부 — 최대 \(redundant + junk.count)장을 휴지통으로 이동합니다. 계속할까요? [y/N] ", terminator: "")
         guard readLine()?.lowercased() == "y" else { return print("취소됨") }
     }
     // 각 그룹은 첫 장(keep)만 남기고 나머지 삭제. 삭제 직전 keep과 바이트까지
@@ -161,19 +161,19 @@ func runFindDuplicates(dir: String, delete: Bool, force: Bool) throws {
             trashed += 1
         }
     }
-    // 안티 패턴 일치는 keep 없이 전부. 중복 그룹에도 속해 이미 이동된 파일은 조용히 건너뜀.
+    // 정크 프레임 일치는 keep 없이 전부. 중복 그룹에도 속해 이미 이동된 파일은 조용히 건너뜀.
     for url in junk where (try? FileManager.default.trashItem(at: url, resultingItemURL: nil)) != nil {
         trashed += 1
     }
     print("완료: \(trashed)장 휴지통으로 이동 (복구 가능)")
 }
 
-func runAntiPattern(_ args: [String]) throws {
-    let dir = try antiPatternsDir()
+func runJunk(_ args: [String]) throws {
+    let dir = try junkPatternsDir()
     switch args.first {
     case "add":
         guard let path = args.dropFirst().first else {
-            throw die("사용법: antipattern add <이미지.png>")
+            throw die("사용법: junk add <이미지.png>")
         }
         let src = URL(fileURLWithPath: path)
         guard grayFingerprint(at: src) != nil else {
@@ -190,15 +190,15 @@ func runAntiPattern(_ args: [String]) throws {
         print("등록: \(dest.path)")
 
     case "list", nil:
-        let items = try antiPatterns()
+        let items = try junkPatterns()
         guard !items.isEmpty else {
-            return print("등록된 안티 패턴 없음 (\(dir.path))")
+            return print("등록된 정크 프레임 없음 (\(dir.path))")
         }
         for url in items { print(url.path) }
         print("\(items.count)개 — 제거는 해당 파일 삭제: \(dir.path)")
 
     default:
-        throw die("사용법: antipattern add <이미지.png> | antipattern list")
+        throw die("사용법: junk add <이미지.png> | junk list")
     }
 }
 
@@ -297,8 +297,8 @@ struct SMacro {
                 dir: flagValue(args, "--dir") ?? "captures",
                 delete: args.contains("--delete"), force: args.contains("-f"))
 
-        case "antipattern":
-            try runAntiPattern(Array(args.dropFirst()))
+        case "junk":
+            try runJunk(Array(args.dropFirst()))
 
         default:
             print(usage)
