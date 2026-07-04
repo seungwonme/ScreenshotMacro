@@ -428,7 +428,13 @@ private struct JunkPrint {
 private func popupFingerprintIfModalLike(at url: URL) -> [UInt8]? {
     guard let fp = grayFingerprint(at: url, width: 64, height: 32, crop: popupCrop) else { return nil }
     // spartan: 전자책 모달 고정 밴드 하나만 - 다른 모달 레이아웃이 필요해지면 패턴별 밴드로 확장.
-    return fp.filter { $0 < 120 }.count >= 10 ? fp : nil
+    // 게이트는 '밴드에 콘텐츠가 있는가' = 최빈 배경색과 크게 다른 픽셀 수. 어두운 픽셀 수 기준은
+    // 가는 제목 + 중간톤 버튼뿐인 딤 배경형 모달(dark 5개)을 놓쳤다. 실측: 빈 밴드 0 vs 모달 205+.
+    var counts = [Int](repeating: 0, count: 256)
+    for v in fp { counts[Int(v)] += 1 }
+    guard let mode = counts.indices.max(by: { counts[$0] < counts[$1] }) else { return nil }
+    let content = fp.count { abs(Int($0) - mode) > 40 }
+    return content >= 50 ? fp : nil
 }
 
 /// files 중 정크 프레임 기준 이미지와 거의 같은 프레임 목록 (입력 순서 유지).

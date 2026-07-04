@@ -241,15 +241,15 @@ final class CoreTests: XCTestCase {
         }
     }
 
+    /// 딤 배경형 모달 재현: 어두운 픽셀 없이 가는 중간톤 제목 + 중간톤 버튼만
+    /// (dark 픽셀 수 게이트가 놓쳤던 실측 케이스 - 콘텐츠 게이트 회귀 방지)
     private func drawLastPagePopup(_ ctx: CGContext) {
         ctx.setFillColor(CGColor(gray: 0.98, alpha: 1))
         ctx.fill(CGRect(x: 40, y: 160, width: 240, height: 95))
-        ctx.setFillColor(CGColor(gray: 0.05, alpha: 1))
-        ctx.fill(CGRect(x: 112, y: 184, width: 96, height: 12))
-        ctx.setStrokeColor(CGColor(gray: 0.6, alpha: 1))
-        ctx.stroke(CGRect(x: 115, y: 215, width: 90, height: 28))
-        ctx.setFillColor(CGColor(gray: 0.45, alpha: 1))
-        ctx.fill(CGRect(x: 135, y: 225, width: 50, height: 6))
+        ctx.setFillColor(CGColor(gray: 0.55, alpha: 1))
+        ctx.fill(CGRect(x: 112, y: 184, width: 96, height: 8))
+        ctx.setFillColor(CGColor(gray: 0.62, alpha: 1))
+        ctx.fill(CGRect(x: 115, y: 215, width: 90, height: 28))
     }
 
     /// opaque 영역(좌상단 원점 픽셀 좌표)만 흰색, 나머지는 투명한 테스트 이미지
