@@ -108,6 +108,99 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(r.height, 50, accuracy: 4)
     }
 
+    // MARK: - 정크 프레임 매칭
+
+    func testJunkMatching() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let teal = CGColor(red: 0.35, green: 0.78, blue: 0.75, alpha: 1)
+        let dark = CGColor(red: 0.1, green: 0.1, blue: 0.1, alpha: 1)
+
+        // 기준: 흰 배경 중앙에 원형 아이콘 (전자책 뷰어 로딩 화면 형태)
+        let pattern = dir.appendingPathComponent("pattern.png")
+        try writePage(to: pattern) { ctx, w, h in
+            ctx.setFillColor(teal)
+            ctx.fillEllipse(in: CGRect(x: w / 2 - 40, y: h / 2 - 40, width: 80, height: 80))
+        }
+        // 같은 로딩 화면의 재등장 (렌더링 미세 차이로 해시는 다른 별개 캡처)
+        let loading = dir.appendingPathComponent("loading.png")
+        try writePage(to: loading) { ctx, w, h in
+            ctx.setFillColor(CGColor(gray: 0.99, alpha: 1))
+            ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
+            ctx.setFillColor(teal)
+            ctx.fillEllipse(in: CGRect(x: w / 2 - 40, y: h / 2 - 40, width: 80, height: 80))
+        }
+        // 여백 많은 실제 페이지 (짧은 텍스트) - 삭제되면 안 됨
+        let sparse = dir.appendingPathComponent("sparse.png")
+        try writePage(to: sparse) { ctx, _, _ in
+            ctx.setFillColor(dark)
+            for row in 0..<3 {
+                ctx.fill(CGRect(x: 40, y: 60 + row * 24, width: 240, height: 10))
+            }
+        }
+
+        let files = [loading, sparse]
+        XCTAssertEqual(junkMatches(in: files, patterns: [pattern]), [loading])
+        XCTAssertTrue(junkMatches(in: files, patterns: []).isEmpty, "기준 없으면 매칭 없음")
+    }
+
+    func testJunkLowContrastIconVsSparsePage() throws {
+        // 실측 회귀: 연회색 아이콘 로딩 화면은 전역 평균으로는 여백 많은 실제 페이지와
+        // 구분이 안 된다 - 블록 최댓값 지표가 실제 페이지의 국소 텍스트를 잡아내야 한다.
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let faint = CGColor(gray: 0.92, alpha: 1)
+
+        let pattern = dir.appendingPathComponent("pattern.png")
+        try writePage(to: pattern) { ctx, w, h in
+            ctx.setFillColor(faint)
+            ctx.fill(CGRect(x: w / 2 - 30, y: h / 2 - 30, width: 60, height: 60))
+        }
+        // 거의 빈 실제 페이지: 작은 제목 텍스트 한 줄 - 삭제되면 안 됨
+        let titlePage = dir.appendingPathComponent("title.png")
+        try writePage(to: titlePage) { ctx, w, _ in
+            ctx.setFillColor(CGColor(gray: 0.2, alpha: 1))
+            ctx.fill(CGRect(x: w / 2 - 50, y: 120, width: 100, height: 8))
+        }
+
+        XCTAssertTrue(junkMatches(in: [titlePage], patterns: [pattern]).isEmpty)
+    }
+
+    func testJunkPopupIgnoresChangingPageBehindIt() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let pattern = dir.appendingPathComponent("popup-pattern.png")
+        try writePage(to: pattern) { ctx, _, _ in
+            drawTextBars(ctx, x: 40, y: 40, rows: 6)
+            drawLastPagePopup(ctx)
+        }
+        let popupOnDifferentPage = dir.appendingPathComponent("popup-other-page.png")
+        try writePage(to: popupOnDifferentPage) { ctx, _, _ in
+            drawTextBars(ctx, x: 140, y: 40, rows: 8)
+            drawLastPagePopup(ctx)
+        }
+        let realPage = dir.appendingPathComponent("real-page.png")
+        try writePage(to: realPage) { ctx, _, _ in
+            drawTextBars(ctx, x: 80, y: 150, rows: 4)
+        }
+
+        XCTAssertEqual(
+            junkMatches(in: [popupOnDifferentPage, realPage], patterns: [pattern]),
+            [popupOnDifferentPage])
+    }
+
+    func testMaxBlockRMS() {
+        let n = 64 * 80
+        let blank = [UInt8](repeating: 255, count: n)
+        XCTAssertEqual(maxBlockRMS(blank, blank), 0)
+        // 한 블록(8x8)만 완전히 다름 -> 전역 평균이면 255*sqrt(64/5120)=28.5지만 블록 최댓값은 255
+        var oneBlock = blank
+        for y in 0..<8 { for x in 0..<8 { oneBlock[y * 64 + x] = 0 } }
+        XCTAssertEqual(maxBlockRMS(blank, oneBlock), 255)
+        XCTAssertEqual(maxBlockRMS(blank, [0]), .infinity)  // 길이 불일치
+    }
+
     // MARK: - 키 테이블
 
     func testKeyCodesContainDocumentedKeys() {
@@ -124,6 +217,39 @@ final class CoreTests: XCTestCase {
             .appendingPathComponent("smacro-tests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
+    }
+
+    /// 흰 배경 320x400 페이지를 그려 PNG로 저장 (정크 프레임 테스트용)
+    private func writePage(to url: URL, draw: (CGContext, Int, Int) -> Void) throws {
+        let w = 320
+        let h = 400
+        let ctx = try XCTUnwrap(
+            CGContext(
+                data: nil, width: w, height: h, bitsPerComponent: 8,
+                bytesPerRow: w * 4, space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
+        draw(ctx, w, h)
+        try savePNG(try XCTUnwrap(ctx.makeImage()), to: url)
+    }
+
+    private func drawTextBars(_ ctx: CGContext, x: Int, y: Int, rows: Int) {
+        ctx.setFillColor(CGColor(gray: 0.15, alpha: 1))
+        for row in 0..<rows {
+            ctx.fill(CGRect(x: x, y: y + row * 18, width: 120 + (row % 3) * 30, height: 7))
+        }
+    }
+
+    /// 딤 배경형 모달 재현: 어두운 픽셀 없이 가는 중간톤 제목 + 중간톤 버튼만
+    /// (dark 픽셀 수 게이트가 놓쳤던 실측 케이스 - 콘텐츠 게이트 회귀 방지)
+    private func drawLastPagePopup(_ ctx: CGContext) {
+        ctx.setFillColor(CGColor(gray: 0.98, alpha: 1))
+        ctx.fill(CGRect(x: 40, y: 160, width: 240, height: 95))
+        ctx.setFillColor(CGColor(gray: 0.55, alpha: 1))
+        ctx.fill(CGRect(x: 112, y: 184, width: 96, height: 8))
+        ctx.setFillColor(CGColor(gray: 0.62, alpha: 1))
+        ctx.fill(CGRect(x: 115, y: 215, width: 90, height: 28))
     }
 
     /// opaque 영역(좌상단 원점 픽셀 좌표)만 흰색, 나머지는 투명한 테스트 이미지

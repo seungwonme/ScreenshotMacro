@@ -339,6 +339,131 @@ public func duplicateGroups(in files: [URL]) -> [[URL]] {
         .sorted { $0[0].path < $1[0].path }
 }
 
+// MARK: - 정크 프레임 매칭 (로딩 화면 등 '이렇게 생긴 캡처는 불필요' 기준 이미지)
+
+/// 정크 프레임 기준 이미지 보관 폴더. 캡처 베이스와 분리해 clean/stats/find-duplicates
+/// 집계에 섞이지 않는다. 없으면 생성.
+public func junkPatternsDir() throws -> URL {
+    let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        .appendingPathComponent("ScreenshotMacro/junk")
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    return dir
+}
+
+/// 등록된 정크 프레임 기준 이미지 목록 (경로순)
+public func junkPatterns() throws -> [URL] {
+    try collectPNGs(in: junkPatternsDir().path)
+}
+
+/// 디코드된 이미지에서 그레이스케일 지문 추출. crop은 이미지 기준 상대 좌표(0~1, 좌상단 원점).
+/// 종횡비는 무시하고 고정 크기로 리샘플 (양쪽 동일 조건 비교).
+private func grayFingerprint(image source: CGImage, width: Int, height: Int, crop: CGRect? = nil) -> [UInt8]? {
+    var image = source
+    if let crop {
+        let x = max(0, min(1, crop.minX))
+        let y = max(0, min(1, crop.minY))
+        let maxX = max(x, min(1, crop.maxX))
+        let maxY = max(y, min(1, crop.maxY))
+        let rect = CGRect(
+            x: CGFloat(image.width) * x, y: CGFloat(image.height) * y,
+            width: CGFloat(image.width) * (maxX - x), height: CGFloat(image.height) * (maxY - y)
+        ).integral
+        guard let cropped = image.cropping(to: rect) else { return nil }
+        image = cropped
+    }
+    guard
+        let ctx = CGContext(
+            data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width,
+            space: CGColorSpaceCreateDeviceGray(),
+            bitmapInfo: CGImageAlphaInfo.none.rawValue)
+    else { return nil }
+    ctx.interpolationQuality = .medium
+    ctx.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+    guard let data = ctx.data else { return nil }
+    let count = width * height
+    return Array(UnsafeBufferPointer(start: data.bindMemory(to: UInt8.self, capacity: count), count: count))
+}
+
+/// 비교용 그레이스케일 지문. 파일은 512px 썸네일로 한 번만 디코드한다 (풀해상도 디코드 회피).
+public func grayFingerprint(at url: URL, width: Int = 64, height: Int = 80, crop: CGRect? = nil) -> [UInt8]? {
+    guard let thumb = fileThumbnail(at: url, maxPixel: fingerprintDecodeSize) else { return nil }
+    return grayFingerprint(image: thumb, width: width, height: height, crop: crop)
+}
+
+/// 지문용 썸네일 디코드 크기. 팝업 밴드(전체의 44% x 16%)를 64x32로 만들 때도 소스가 남게 512.
+private let fingerprintDecodeSize = 512
+
+/// 두 지문의 8x8 블록별 RMS 픽셀 차 중 최댓값 (0=동일, 255=최대). 길이 불일치는 매칭 불가로 무한대.
+/// 전역 평균 RMS는 저대비 패턴(흰 배경 + 연회색 아이콘)에서 여백 많은 실제 페이지와
+/// 구분이 안 된다 — 텍스트처럼 국소에 몰린 차이를 블록 최댓값으로 증폭해야 갈린다.
+func maxBlockRMS(_ a: [UInt8], _ b: [UInt8], width: Int = 64, height: Int = 80, block: Int = 8) -> Double {
+    guard a.count == b.count, a.count == width * height else { return .infinity }
+    var worst = 0.0
+    for by in stride(from: 0, to: height, by: block) {
+        for bx in stride(from: 0, to: width, by: block) {
+            var sum = 0.0
+            for y in by..<min(by + block, height) {
+                for x in bx..<min(bx + block, width) {
+                    let d = Double(a[y * width + x]) - Double(b[y * width + x])
+                    sum += d * d
+                }
+            }
+            worst = max(worst, (sum / Double(block * block)).squareRoot())
+        }
+    }
+    return worst
+}
+
+/// 정크 프레임 판정 임계값. 실측(전자책 캡처 4개 세션 ~700장, 로딩 화면 2종):
+/// 같은 로딩 화면의 재등장은 0, 가장 비슷한 실제 페이지(간지·속표지)는 8.6·38.2 — 4는 2배+ 마진.
+public let junkRMSThreshold: Double = 4
+
+private let popupCrop = CGRect(x: 0.28, y: 0.42, width: 0.44, height: 0.16)
+
+private struct JunkPrint {
+    let full: [UInt8]
+    let popup: [UInt8]?
+}
+
+private func popupFingerprintIfModalLike(at url: URL) -> [UInt8]? {
+    guard let fp = grayFingerprint(at: url, width: 64, height: 32, crop: popupCrop) else { return nil }
+    // spartan: 전자책 모달 고정 밴드 하나만 - 다른 모달 레이아웃이 필요해지면 패턴별 밴드로 확장.
+    // 게이트는 '밴드에 콘텐츠가 있는가' = 최빈 배경색과 크게 다른 픽셀 수. 어두운 픽셀 수 기준은
+    // 가는 제목 + 중간톤 버튼뿐인 딤 배경형 모달(dark 5개)을 놓쳤다. 실측: 빈 밴드 0 vs 모달 205+.
+    var counts = [Int](repeating: 0, count: 256)
+    for v in fp { counts[Int(v)] += 1 }
+    guard let mode = counts.indices.max(by: { counts[$0] < counts[$1] }) else { return nil }
+    let content = fp.count { abs(Int($0) - mode) > 40 }
+    return content >= 50 ? fp : nil
+}
+
+/// files 중 정크 프레임 기준 이미지와 거의 같은 프레임 목록 (입력 순서 유지).
+/// 중복 dedup(완전 동일 해시)과 달리 전부 삭제 대상 — 남길 한 장이 없다.
+/// 팝업(모달) 밴드 비교는 모달형 패턴이 있을 때만, 파일당 디코드는 썸네일 1회만 수행.
+public func junkMatches(
+    in files: [URL], patterns: [URL], threshold: Double = junkRMSThreshold
+) -> [URL] {
+    let prints = patterns.compactMap { pattern -> JunkPrint? in
+        guard let full = grayFingerprint(at: pattern) else { return nil }
+        return JunkPrint(full: full, popup: popupFingerprintIfModalLike(at: pattern))
+    }
+    guard !prints.isEmpty else { return [] }
+    let hasModalPattern = prints.contains { $0.popup != nil }
+    return files.filter { f in
+        guard let thumb = fileThumbnail(at: f, maxPixel: fingerprintDecodeSize),
+            let fp = grayFingerprint(image: thumb, width: 64, height: 80)
+        else { return false }
+        if prints.contains(where: { maxBlockRMS($0.full, fp) < threshold }) { return true }
+        guard hasModalPattern,
+            let popup = grayFingerprint(image: thumb, width: 64, height: 32, crop: popupCrop)
+        else { return false }
+        return prints.contains { pattern in
+            guard let patternPopup = pattern.popup else { return false }
+            return maxBlockRMS(patternPopup, popup, width: 64, height: 32) < threshold
+        }
+    }
+}
+
 /// 파일에서 최대 변 길이 maxPixel의 축소 썸네일 생성 (원본 풀해상도 디코드를 피해 메모리 절약).
 public func fileThumbnail(at url: URL, maxPixel: Int = 400) -> CGImage? {
     guard let src = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }

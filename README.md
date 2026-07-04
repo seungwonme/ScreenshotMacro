@@ -87,8 +87,21 @@ swift run smacro-proto macro --app 미리보기 --reps 300 --key right \
 swift run smacro-proto captures                         # 세션별 캡처 현황
 swift run smacro-proto stats                            # 전체 통계
 swift run smacro-proto clean [-f]                       # 캡처 전체 휴지통 이동 (-f: 확인 생략)
-swift run smacro-proto find-duplicates [--delete] [-f] # 중복 캡처 탐지 (--delete: 그룹당 1장만 남기고 휴지통)
+swift run smacro-proto find-duplicates [--delete] [-f] # 중복 캡처 탐지 + 정크 프레임 탐지
+                                                        # (--delete: 중복은 그룹당 1장 유지, 정크는 전부 휴지통)
+swift run smacro-proto junk add <이미지.png>             # 정크 프레임 기준 등록
+swift run smacro-proto junk list                        # 등록된 기준 목록 (제거는 해당 파일 삭제)
 ```
+
+### 정크 프레임 정리
+
+전자책 로딩 화면이나 "마지막 페이지입니다" 팝업처럼 **이렇게 생긴 캡처는 불필요**한 프레임을
+기준 이미지로 등록하면, `find-duplicates --delete`와 GUI의 '끝나면 자동 정리'가 거의 같은
+프레임을 전부 휴지통으로 이동한다. 등록된 기준과 거의 픽셀 단위로 같은 프레임만 지우므로
+(블록 RMS 임계값, 실측 2배+ 마진) 처음 보는 페이지는 절대 지워지지 않는다.
+
+기준 이미지는 각자의 캡처에서 나온 것을 직접 등록하며,
+`~/Library/Application Support/ScreenshotMacro/junk/`에 로컬로만 보관된다 (저장소에 포함되지 않음).
 
 ## Project Structure
 
