@@ -27,10 +27,15 @@ SwiftPM 패키지, 타깃 3개:
 ## Dev Commands
 
 ```bash
+just build                        # 전체 빌드
+just test                         # 단위 테스트
+just app-smoke                    # .app 번들/아이콘/서명 smoke
+just install                      # ~/Applications/ScreenshotMacro.app 설치
 swift build                       # 전체 빌드 (GUI + CLI)
 swift test                        # 단위 테스트 (권한 불필요 - CI/pre-push 훅에서도 실행)
 swift run smacro-gui              # GUI 실행
 swift run smacro-proto <command>  # CLI
+scripts/validate-app-bundle.sh    # .app 번들/아이콘/서명 검증
 scripts/validate-swift-proto.sh   # E2E 검증 (권한 있는 터미널에서, TextEdit로 자동 판정)
 ```
 

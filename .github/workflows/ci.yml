@@ -12,3 +12,4 @@ jobs:
       - uses: actions/checkout@v4
       - run: swift build
       - run: swift test
+      - run: scripts/validate-app-bundle.sh

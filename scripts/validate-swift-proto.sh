@@ -25,9 +25,18 @@ echo "== 3. TextEdit 준비 (테스트 대상, 새 문서)"
 osascript -e 'tell application "TextEdit"
   activate
   make new document
+  set bounds of front window to {120, 120, 900, 700}
 end tell' > /dev/null || { bad "TextEdit 문서 생성 (자동화 권한 확인)"; exit 1; }
-TE_PID=$(pgrep -x TextEdit | head -1)
+TE_PID=$(osascript -e 'tell application "System Events" to get unix id of process "TextEdit"' 2>/dev/null)
 ok "TextEdit pid=$TE_PID"
+TEXTEDIT_TOTAL='tell application "TextEdit"
+  set total to 0
+  repeat with d in documents
+    set total to total + (count characters of d)
+  end repeat
+  return total
+end tell'
+BEFORE_LEN=$(osascript -e "$TEXTEDIT_TOTAL" 2>&1)
 
 # 터미널을 다시 전면으로 -> TextEdit은 백그라운드가 됨
 sleep 1
@@ -63,11 +72,12 @@ for i in 1 2 3 4 5; do
 done
 sleep 0.5
 # macOS 26 TextEdit에서 'length of text of document 1'은 -1728로 실패 -> count characters 사용
-LEN=$(osascript -e 'tell application "TextEdit" to count characters of document 1' 2>&1)
-if [ "$KEYFAIL" -eq 0 ] && [ "$LEN" = "5" ]; then
+LEN=$(osascript -e "$TEXTEDIT_TOTAL" 2>&1)
+DELTA=$(( ${LEN:-0} - ${BEFORE_LEN:-0} ))
+if [ "$KEYFAIL" -eq 0 ] && [ "$DELTA" = "5" ]; then
   ok "백그라운드 키 전송 (문서에 공백 5자 입력 확인)"
 else
-  bad "키 전송 — 문서 글자 수: $LEN (기대: 5). 손쉬운 사용 권한 확인"
+  bad "키 전송 — 문서 글자 수: $BEFORE_LEN -> $LEN (증가 기대: 5). 손쉬운 사용 권한 확인"
 fi
 
 echo "== 6. 정리 (TextEdit 문서 저장 없이 닫기)"
