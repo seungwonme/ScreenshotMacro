@@ -562,11 +562,11 @@ struct ContentView: View {
                         }
                     }
                     Button {
-                        openDuplicates(in: lastSessionDir ?? URL(fileURLWithPath: outputBase))
+                        openDuplicates(in: latestSessionDir())
                     } label: {
                         Label("중복 정리", systemImage: "square.on.square.dashed")
                     }
-                    .help("바이트 완전 동일한 중복 캡처를 미리보기로 확인하고 삭제합니다")
+                    .help("방금 매크로를 돌린 세션 폴더의 중복 캡처를 미리보기로 확인하고 삭제합니다")
                 }
             }
 
@@ -888,6 +888,22 @@ struct ContentView: View {
 
     private var allDupsSelected: Bool {
         !deletableDups.isEmpty && dupSelected.count == deletableDups.count
+    }
+
+    /// 중복 정리가 스캔할 폴더: 이번 실행의 세션 폴더가 있으면 그걸, 없으면(앱 재실행 등)
+    /// outputBase 아래 가장 최근(최고 번호) 세션 폴더, 그것도 없으면 base 자체.
+    private func latestSessionDir() -> URL {
+        if let lastSessionDir { return lastSessionDir }
+        let base = URL(fileURLWithPath: outputBase)
+        let subs =
+            (try? FileManager.default.contentsOfDirectory(
+                at: base, includingPropertiesForKeys: [.isDirectoryKey])) ?? []
+        let sessions = subs.filter {
+            (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+                && Int($0.lastPathComponent) != nil
+        }
+        return sessions.max { (Int($0.lastPathComponent) ?? 0) < (Int($1.lastPathComponent) ?? 0) }
+            ?? base
     }
 
     private func openDuplicates(in dir: URL) {
