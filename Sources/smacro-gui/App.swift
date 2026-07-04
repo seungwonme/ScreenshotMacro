@@ -72,7 +72,8 @@ struct ContentView: View {
     @State private var previewPointSize: CGSize = .zero
     @State private var dragCurrent: CGRect?
     @State private var dragMode: AreaDragMode?
-    @State private var dragStart: CGPoint?  // 제스처 취소로 잔존한 상태를 다음 드래그에서 감지
+    // 제스처 취소(onEnded 미호출) 시에도 자동 리셋되는 유일한 수단 — onChange로 잔존 상태 정리
+    @GestureState private var dragActive = false
     @State private var lastFrame: CGImage?  // 실행/테스트 중 방금 저장된 컷
     @State private var testPassed = false
     @State private var status = ""
@@ -338,6 +339,28 @@ struct ContentView: View {
                     areaField("y", 1)
                     areaField("w", 2)
                     areaField("h", 3)
+                    if area != nil {
+                        Button {
+                            centerArea()
+                        } label: {
+                            Image(systemName: "rectangle.center.inset.filled")
+                        }
+                        .help("영역을 창 중앙으로 정렬")
+                        Button {
+                            resizeArea(step: 10)
+                        } label: {
+                            Image(systemName: "arrow.up.left.and.arrow.down.right")
+                        }
+                        .help("영역 키우기 (⇧])")
+                        .keyboardShortcut("]", modifiers: .shift)
+                        Button {
+                            resizeArea(step: -10)
+                        } label: {
+                            Image(systemName: "arrow.down.right.and.arrow.up.left")
+                        }
+                        .help("영역 줄이기 (⇧[)")
+                        .keyboardShortcut("[", modifiers: .shift)
+                    }
                 }
                 Spacer()
                 Button {
@@ -410,10 +433,25 @@ struct ContentView: View {
                 .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
                 .contentShape(Rectangle())
                 .gesture(dragGesture(fit: fit))
-                .onTapGesture(count: 2) {
-                    // 선택이 프리뷰 전체를 덮으면 새로 그릴 자리가 없다 — 더블클릭으로 해제
-                    guard !fullWindow, area != nil else { return }
+                .onChange(of: dragActive) { _, active in
+                    // 제스처가 취소돼 onEnded가 안 불려도 잔존 상태를 정리 (정상 종료 뒤엔 no-op)
+                    if !active {
+                        dragCurrent = nil
+                        dragMode = nil
+                    }
+                }
+                .onTapGesture(count: 2) { location in
+                    // 선택이 프리뷰 전체를 덮으면 새로 그릴 자리가 없다 — 더블클릭으로 해제.
+                    // 핸들 근처 미세 조정 시도(4pt 미만 드래그 2회)가 해제로 오인되지 않게
+                    // 선택 내부 더블클릭은 무시하되, 전체를 덮었을 때는 어디든 허용.
+                    guard !fullWindow, let r = selectionRect(in: fit) else { return }
+                    let coversAll = r.insetBy(dx: -1, dy: -1).contains(fit)
+                    guard coversAll || !r.insetBy(dx: -12, dy: -12).contains(location) else {
+                        return
+                    }
                     areaString = ""
+                    dragCurrent = nil
+                    dragMode = nil
                     status = "선택 해제 — 드래그로 새 영역을 지정하세요"
                 }
             }
@@ -758,14 +796,15 @@ struct ContentView: View {
         // Shift+드래그 = 기존 선택 무시하고 항상 새로 그리기
         if NSEvent.modifierFlags.contains(.shift) { return .create }
         guard !fullWindow, let r = selectionRect(in: fit) else { return .create }
-        // 작은 선택에서도 내부 move 존이 남도록 톨러런스를 줄인다
-        let tol = min(10, r.width / 3, r.height / 3)
+        // 작은 선택에서도 내부 move 존이 남도록 톨러런스를 축별로 줄인다
+        let tolX = min(10, r.width / 3)
+        let tolY = min(10, r.height / 3)
         let dxMin = abs(p.x - r.minX), dxMax = abs(p.x - r.maxX)
         let dyMin = abs(p.y - r.minY), dyMax = abs(p.y - r.maxY)
-        let ex: RectEdge? = min(dxMin, dxMax) <= tol ? (dxMin <= dxMax ? .min : .max) : nil
-        let ey: RectEdge? = min(dyMin, dyMax) <= tol ? (dyMin <= dyMax ? .min : .max) : nil
-        let insideX = p.x > r.minX - tol && p.x < r.maxX + tol
-        let insideY = p.y > r.minY - tol && p.y < r.maxY + tol
+        let ex: RectEdge? = min(dxMin, dxMax) <= tolX ? (dxMin <= dxMax ? .min : .max) : nil
+        let ey: RectEdge? = min(dyMin, dyMax) <= tolY ? (dyMin <= dyMax ? .min : .max) : nil
+        let insideX = p.x > r.minX - tolX && p.x < r.maxX + tolX
+        let insideY = p.y > r.minY - tolY && p.y < r.maxY + tolY
         if (ex != nil || ey != nil), insideX, insideY { return .resize(r, x: ex, y: ey) }
         if r.contains(p) { return .move(r) }
         return .create
@@ -777,14 +816,38 @@ struct ContentView: View {
             y: min(max(p.y, rect.minY), rect.maxY))
     }
 
+    /// 영역을 크기 유지한 채 창 중앙으로.
+    /// 창 frame이 아니라 캡처 이미지의 실제 불투명 콘텐츠 기준 — 일부 앱(Chrome 등)은
+    /// frame보다 좁게 렌더링해 이미지 오른쪽/아래가 투명 패딩이라 frame 중앙이 어긋난다.
+    private func centerArea() {
+        guard let a = area, previewPointSize != .zero, let img = preview else { return }
+        let ptPerPx = previewPointSize.width / CGFloat(img.width)
+        let c = opaqueContentRect(of: img)
+        let content = CGRect(
+            x: c.minX * ptPerPx, y: c.minY * ptPerPx,
+            width: c.width * ptPerPx, height: c.height * ptPerPx)
+        areaString = CGRect(
+            x: max(0, content.minX + (content.width - a.width) / 2),
+            y: max(0, content.minY + (content.height - a.height) / 2),
+            width: a.width, height: a.height
+        ).storageString
+        status = "영역을 창 중앙으로 정렬했습니다"
+    }
+
+    /// 중심 고정으로 사방 step(창 포인트)만큼 키우기/줄이기 — 창 경계 클램프
+    private func resizeArea(step: CGFloat) {
+        guard let a = area, previewPointSize != .zero else { return }
+        let r = a.insetBy(dx: -step, dy: -step)
+            .intersection(CGRect(origin: .zero, size: previewPointSize))
+        guard !r.isNull, r.width >= 1, r.height >= 1 else { return }
+        areaString = r.storageString
+    }
+
     private func dragGesture(fit: CGRect) -> some Gesture {
         DragGesture(minimumDistance: 4)
+            .updating($dragActive) { _, state, _ in state = true }
             .onChanged { v in
-                // 제스처 취소(onEnded 미호출)로 잔존한 상태는 startLocation이 달라져 감지된다
-                if dragMode == nil || dragStart != v.startLocation {
-                    dragStart = v.startLocation
-                    dragMode = hitTest(v.startLocation, fit: fit)
-                }
+                if dragMode == nil { dragMode = hitTest(v.startLocation, fit: fit) }
                 let t = CGSize(
                     width: v.location.x - v.startLocation.x,
                     height: v.location.y - v.startLocation.y)
@@ -797,6 +860,8 @@ struct ContentView: View {
                     r = CGRect(
                         x: min(a.x, b.x), y: min(a.y, b.y),
                         width: abs(b.x - a.x), height: abs(b.y - a.y))
+                    // 레터박스 여백만 오가는 드래그는 0-크기 sliver — 표시하지 않음
+                    if r.width < 1 || r.height < 1 { return }
                 case .move(let orig):
                     r = orig.offsetBy(dx: t.width, dy: t.height)
                     // 선택이 fit보다 커도 min/max가 역전되지 않게 상한을 하한 이상으로
@@ -826,16 +891,19 @@ struct ContentView: View {
                 defer {
                     dragCurrent = nil
                     dragMode = nil
-                    dragStart = nil
                 }
                 guard let r = dragCurrent, previewPointSize.width > 0 else { return }
                 // 새로 그리기만 실수 방지 최소 크기 적용 — 이동/리사이즈는 그대로 커밋
                 if case .create = mode ?? .create, r.width <= 4 || r.height <= 4 { return }
                 let sx = previewPointSize.width / fit.width
                 let sy = previewPointSize.height / fit.height
+                let w = max(1, r.width * sx)
+                let h = max(1, r.height * sy)
                 areaString = CGRect(
-                    x: (r.minX - fit.minX) * sx, y: (r.minY - fit.minY) * sy,
-                    width: max(1, r.width * sx), height: max(1, r.height * sy)
+                    // 창 max 변에서 0으로 접힌 리사이즈가 창 밖 좌표로 커밋되지 않게 origin도 클램프
+                    x: min((r.minX - fit.minX) * sx, previewPointSize.width - w),
+                    y: min((r.minY - fit.minY) * sy, previewPointSize.height - h),
+                    width: w, height: h
                 ).storageString
                 fullWindow = false
                 status = "영역 지정 완료 — 드래그로 이동, 핸들로 크기 조절, ⇧드래그로 새로 그리기"
