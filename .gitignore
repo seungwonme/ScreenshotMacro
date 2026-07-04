@@ -14,6 +14,10 @@ screenshots/
 .bkit/
 .claude/worktrees/
 
+# AI 세션 로그 (훅이 자동 생성 - 공개 추적 금지)
+prompts/
+
 # Python 잔재 방지 (전환기 로컬 캐시)
 __pycache__/
 uv.lock
+config.python-final.bak.json
