@@ -350,6 +350,38 @@ public func fileThumbnail(at url: URL, maxPixel: Int = 400) -> CGImage? {
     return CGImageSourceCreateThumbnailAtIndex(src, 0, opts as CFDictionary)
 }
 
+/// 이미지에서 불투명 콘텐츠가 차지하는 영역 (픽셀 좌표, 좌상단 원점).
+/// 일부 앱(Chrome 등)은 창 frame보다 좁게 렌더링해 SCK 캡처 오른쪽/아래가 투명 패딩으로
+/// 남는다 - '보이는 콘텐츠' 기준 정렬용. 다운샘플 스캔이라 오차는 ±(원본폭/256)px.
+public func opaqueContentRect(of image: CGImage) -> CGRect {
+    let full = CGRect(x: 0, y: 0, width: image.width, height: image.height)
+    let sw = min(256, image.width)
+    let sh = max(1, image.height * sw / max(1, image.width))
+    guard
+        let ctx = CGContext(
+            data: nil, width: sw, height: sh, bitsPerComponent: 8, bytesPerRow: sw * 4,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+    else { return full }
+    ctx.draw(image, in: CGRect(x: 0, y: 0, width: sw, height: sh))
+    guard let data = ctx.data else { return full }
+    let px = data.bindMemory(to: UInt8.self, capacity: sw * sh * 4)
+    var minX = sw, maxX = -1, minY = sh, maxY = -1
+    for y in 0..<sh {
+        for x in 0..<sw where px[(y * sw + x) * 4 + 3] > 10 {
+            minX = min(minX, x)
+            maxX = max(maxX, x)
+            minY = min(minY, y)
+            maxY = max(maxY, y)
+        }
+    }
+    guard maxX >= 0 else { return full }  // 전부 투명이면 전체 반환 (0-크기 방지)
+    let s = CGFloat(image.width) / CGFloat(sw)
+    return CGRect(
+        x: CGFloat(minX) * s, y: CGFloat(minY) * s,
+        width: CGFloat(maxX - minX + 1) * s, height: CGFloat(maxY - minY + 1) * s)
+}
+
 // MARK: - "x,y[,w,h]" 문자열 직렬화 (GUI @AppStorage 저장용 - 파싱/기록 지점 공용)
 
 extension CGRect {

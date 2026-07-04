@@ -79,6 +79,35 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(try nextSessionDir(base: base).lastPathComponent, "02")
     }
 
+    // MARK: - 불투명 콘텐츠 영역 (창 frame보다 좁게 렌더링된 캡처의 투명 패딩 탐지)
+
+    func testOpaqueContentRectDetectsRightPadding() throws {
+        // 400x200 중 왼쪽 300px만 불투명 (오른쪽 100px 투명 패딩 — Chrome 캡처 재현)
+        let img = try makeImage(width: 400, height: 200, opaque: CGRect(x: 0, y: 0, width: 300, height: 200))
+        let r = opaqueContentRect(of: img)
+        XCTAssertEqual(r.minX, 0, accuracy: 4)
+        XCTAssertEqual(r.width, 300, accuracy: 4)
+        XCTAssertEqual(r.height, 200, accuracy: 4)
+    }
+
+    func testOpaqueContentRectFullWhenNoPadding() throws {
+        let img = try makeImage(width: 100, height: 50, opaque: CGRect(x: 0, y: 0, width: 100, height: 50))
+        XCTAssertEqual(opaqueContentRect(of: img), CGRect(x: 0, y: 0, width: 100, height: 50))
+    }
+
+    func testOpaqueContentRectAllTransparentReturnsFull() throws {
+        let img = try makeImage(width: 100, height: 50, opaque: .zero)
+        XCTAssertEqual(opaqueContentRect(of: img), CGRect(x: 0, y: 0, width: 100, height: 50))
+    }
+
+    func testOpaqueContentRectTopLeftOrigin() throws {
+        // 위쪽 절반만 불투명 — y 원점이 좌상단인지 검증 (CG 좌표 뒤집힘 회귀 방지)
+        let img = try makeImage(width: 100, height: 100, opaque: CGRect(x: 0, y: 0, width: 100, height: 50))
+        let r = opaqueContentRect(of: img)
+        XCTAssertEqual(r.minY, 0, accuracy: 4)
+        XCTAssertEqual(r.height, 50, accuracy: 4)
+    }
+
     // MARK: - 키 테이블
 
     func testKeyCodesContainDocumentedKeys() {
@@ -95,5 +124,23 @@ final class CoreTests: XCTestCase {
             .appendingPathComponent("smacro-tests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
+    }
+
+    /// opaque 영역(좌상단 원점 픽셀 좌표)만 흰색, 나머지는 투명한 테스트 이미지
+    private func makeImage(width: Int, height: Int, opaque: CGRect) throws -> CGImage {
+        let ctx = try XCTUnwrap(
+            CGContext(
+                data: nil, width: width, height: height, bitsPerComponent: 8,
+                bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        if !opaque.isEmpty {
+            ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+            // CGContext는 y-상향 좌표 — 좌상단 원점 입력을 뒤집어 채운다
+            ctx.fill(
+                CGRect(
+                    x: opaque.minX, y: CGFloat(height) - opaque.maxY,
+                    width: opaque.width, height: opaque.height))
+        }
+        return try XCTUnwrap(ctx.makeImage())
     }
 }

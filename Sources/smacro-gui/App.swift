@@ -25,6 +25,15 @@ struct SMacroApp: App {
     }
 }
 
+/// 영역 드래그의 종류: 새로 그리기 / 기존 선택 이동 / 핸들 리사이즈
+enum AreaDragMode {
+    case create
+    case move(CGRect)
+    case resize(CGRect, x: RectEdge?, y: RectEdge?)
+}
+
+enum RectEdge { case min, max }
+
 struct TargetWindow: Identifiable, Hashable {
     let id: CGWindowID
     let pid: pid_t
@@ -62,6 +71,9 @@ struct ContentView: View {
     @State private var preview: CGImage?
     @State private var previewPointSize: CGSize = .zero
     @State private var dragCurrent: CGRect?
+    @State private var dragMode: AreaDragMode?
+    // 제스처 취소(onEnded 미호출) 시에도 자동 리셋되는 유일한 수단 — onChange로 잔존 상태 정리
+    @GestureState private var dragActive = false
     @State private var lastFrame: CGImage?  // 실행/테스트 중 방금 저장된 컷
     @State private var testPassed = false
     @State private var status = ""
@@ -69,6 +81,7 @@ struct ContentView: View {
     @State private var lastSessionDir: URL?
     @State private var capturingKey = false
     @State private var keyMonitor: Any?
+    @State private var nudgeMonitor: Any?  // 2단계 방향키 영역 이동
     @State private var refreshing = false
     @State private var screenPermissionDenied = false
     @State private var windowFallbackNote: String?  // 원래 창을 잃고 같은 앱 다른 창으로 폴백했을 때 안내
@@ -327,6 +340,28 @@ struct ContentView: View {
                     areaField("y", 1)
                     areaField("w", 2)
                     areaField("h", 3)
+                    if area != nil {
+                        Button {
+                            centerArea()
+                        } label: {
+                            Image(systemName: "rectangle.center.inset.filled")
+                        }
+                        .help("영역을 창 중앙으로 정렬")
+                        Button {
+                            resizeArea(step: 10)
+                        } label: {
+                            Image(systemName: "arrow.up.left.and.arrow.down.right")
+                        }
+                        .help("영역 키우기 (⇧])")
+                        .keyboardShortcut("]", modifiers: .shift)
+                        Button {
+                            resizeArea(step: -10)
+                        } label: {
+                            Image(systemName: "arrow.down.right.and.arrow.up.left")
+                        }
+                        .help("영역 줄이기 (⇧[)")
+                        .keyboardShortcut("[", modifiers: .shift)
+                    }
                 }
                 Spacer()
                 Button {
@@ -348,6 +383,8 @@ struct ContentView: View {
             }
         }
         .disabled(running)
+        .onAppear { startNudgeMonitor() }
+        .onDisappear { stopNudgeMonitor() }
     }
 
     private var previewEditor: some View {
@@ -359,7 +396,7 @@ struct ContentView: View {
                         .resizable()
                         .frame(width: fit.width, height: fit.height)
                         .offset(x: fit.minX, y: fit.minY)
-                    if !fullWindow, let rect = selectionRect(in: fit) {
+                    if !fullWindow || dragCurrent != nil, let rect = selectionRect(in: fit) {
                         // 선택 밖은 어둡게 — 어디가 찍히는지 즉시 보이게
                         Path { p in
                             p.addRect(CGRect(origin: .zero, size: geo.size))
@@ -370,11 +407,56 @@ struct ContentView: View {
                             .stroke(.orange, lineWidth: 2)
                             .frame(width: rect.width, height: rect.height)
                             .offset(x: rect.minX, y: rect.minY)
+                        // 리사이즈 핸들 (모서리 4 + 변 중앙 4)
+                        ForEach(0..<handlePoints(of: rect).count, id: \.self) { i in
+                            Rectangle()
+                                .fill(.white)
+                                .frame(width: 7, height: 7)
+                                .overlay(Rectangle().stroke(.orange, lineWidth: 1))
+                                .position(handlePoints(of: rect)[i])
+                        }
+                        // 크기 라벨 (창 기준 포인트)
+                        if fit.width > 0 {
+                            let sx = previewPointSize.width / fit.width
+                            let sy = previewPointSize.height / fit.height
+                            Text(
+                                "\(Int((rect.width * sx).rounded()))×\(Int((rect.height * sy).rounded()))pt"
+                            )
+                            .font(.caption.monospaced())
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(.black.opacity(0.7), in: Capsule())
+                            .foregroundStyle(.white)
+                            .position(
+                                x: min(max(rect.midX, 40), geo.size.width - 40),
+                                y: min(rect.maxY + 16, geo.size.height - 12))
+                        }
                     }
                 }
                 .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
                 .contentShape(Rectangle())
                 .gesture(dragGesture(fit: fit))
+                .onChange(of: dragActive) { _, active in
+                    // 제스처가 취소돼 onEnded가 안 불려도 잔존 상태를 정리 (정상 종료 뒤엔 no-op)
+                    if !active {
+                        dragCurrent = nil
+                        dragMode = nil
+                    }
+                }
+                .onTapGesture(count: 2) { location in
+                    // 선택이 프리뷰 전체를 덮으면 새로 그릴 자리가 없다 — 더블클릭으로 해제.
+                    // 핸들 근처 미세 조정 시도(4pt 미만 드래그 2회)가 해제로 오인되지 않게
+                    // 선택 내부 더블클릭은 무시하되, 전체를 덮었을 때는 어디든 허용.
+                    guard !fullWindow, let r = selectionRect(in: fit) else { return }
+                    let coversAll = r.insetBy(dx: -1, dy: -1).contains(fit)
+                    guard coversAll || !r.insetBy(dx: -12, dy: -12).contains(location) else {
+                        return
+                    }
+                    areaString = ""
+                    dragCurrent = nil
+                    dragMode = nil
+                    status = "선택 해제 — 드래그로 새 영역을 지정하세요"
+                }
             }
         }
     }
@@ -702,30 +784,164 @@ struct ContentView: View {
             width: area.width * sx, height: area.height * sy)
     }
 
+    /// 핸들 위치: 모서리 4 + 변 중앙 4
+    private func handlePoints(of r: CGRect) -> [CGPoint] {
+        [
+            CGPoint(x: r.minX, y: r.minY), CGPoint(x: r.midX, y: r.minY),
+            CGPoint(x: r.maxX, y: r.minY), CGPoint(x: r.minX, y: r.midY),
+            CGPoint(x: r.maxX, y: r.midY), CGPoint(x: r.minX, y: r.maxY),
+            CGPoint(x: r.midX, y: r.maxY), CGPoint(x: r.maxX, y: r.maxY),
+        ]
+    }
+
+    /// 드래그 시작점이 기존 선택의 핸들/내부/외부 중 어디인지 판정
+    private func hitTest(_ p: CGPoint, fit: CGRect) -> AreaDragMode {
+        // Shift+드래그 = 기존 선택 무시하고 항상 새로 그리기
+        if NSEvent.modifierFlags.contains(.shift) { return .create }
+        guard !fullWindow, let r = selectionRect(in: fit) else { return .create }
+        // 작은 선택에서도 내부 move 존이 남도록 톨러런스를 축별로 줄인다
+        let tolX = min(10, r.width / 3)
+        let tolY = min(10, r.height / 3)
+        let dxMin = abs(p.x - r.minX), dxMax = abs(p.x - r.maxX)
+        let dyMin = abs(p.y - r.minY), dyMax = abs(p.y - r.maxY)
+        let ex: RectEdge? = min(dxMin, dxMax) <= tolX ? (dxMin <= dxMax ? .min : .max) : nil
+        let ey: RectEdge? = min(dyMin, dyMax) <= tolY ? (dyMin <= dyMax ? .min : .max) : nil
+        let insideX = p.x > r.minX - tolX && p.x < r.maxX + tolX
+        let insideY = p.y > r.minY - tolY && p.y < r.maxY + tolY
+        if (ex != nil || ey != nil), insideX, insideY { return .resize(r, x: ex, y: ey) }
+        if r.contains(p) { return .move(r) }
+        return .create
+    }
+
+    private func clampPoint(_ p: CGPoint, to rect: CGRect) -> CGPoint {
+        CGPoint(
+            x: min(max(p.x, rect.minX), rect.maxX),
+            y: min(max(p.y, rect.minY), rect.maxY))
+    }
+
+    /// 영역을 크기 유지한 채 창 중앙으로.
+    /// 창 frame이 아니라 캡처 이미지의 실제 불투명 콘텐츠 기준 — 일부 앱(Chrome 등)은
+    /// frame보다 좁게 렌더링해 이미지 오른쪽/아래가 투명 패딩이라 frame 중앙이 어긋난다.
+    private func centerArea() {
+        guard let a = area, previewPointSize != .zero, let img = preview else { return }
+        let ptPerPx = previewPointSize.width / CGFloat(img.width)
+        let c = opaqueContentRect(of: img)
+        let content = CGRect(
+            x: c.minX * ptPerPx, y: c.minY * ptPerPx,
+            width: c.width * ptPerPx, height: c.height * ptPerPx)
+        areaString = CGRect(
+            x: max(0, content.minX + (content.width - a.width) / 2),
+            y: max(0, content.minY + (content.height - a.height) / 2),
+            width: a.width, height: a.height
+        ).storageString
+        status = "영역을 창 중앙으로 정렬했습니다 — 방향키로 미세 이동 (⇧: 10pt)"
+    }
+
+    /// 방향키로 영역 이동 (1pt, ⇧=10pt) — 2단계에서만, 텍스트 필드 편집 중엔 개입 안 함
+    private func startNudgeMonitor() {
+        guard nudgeMonitor == nil else { return }
+        nudgeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            guard !fullWindow, !running, let a = area, previewPointSize != .zero,
+                // 필드 편집 중 커서 이동(field editor는 NSTextView)을 방향키가 뺏지 않게
+                !(NSApp.keyWindow?.firstResponder is NSTextView)
+            else { return event }
+            let step: CGFloat = event.modifierFlags.contains(.shift) ? 10 : 1
+            var dx: CGFloat = 0, dy: CGFloat = 0
+            switch event.keyCode {
+            case 123: dx = -step  // ←
+            case 124: dx = step  // →
+            case 125: dy = step  // ↓
+            case 126: dy = -step  // ↑
+            default: return event
+            }
+            var r = a.offsetBy(dx: dx, dy: dy)
+            r.origin.x = min(max(0, r.origin.x), max(0, previewPointSize.width - r.width))
+            r.origin.y = min(max(0, r.origin.y), max(0, previewPointSize.height - r.height))
+            areaString = r.storageString
+            return nil  // 소비 (스크롤 등으로 새지 않게)
+        }
+    }
+
+    private func stopNudgeMonitor() {
+        if let m = nudgeMonitor {
+            NSEvent.removeMonitor(m)
+            nudgeMonitor = nil
+        }
+    }
+
+    /// 중심 고정으로 사방 step(창 포인트)만큼 키우기/줄이기 — 창 경계 클램프
+    private func resizeArea(step: CGFloat) {
+        guard let a = area, previewPointSize != .zero else { return }
+        let r = a.insetBy(dx: -step, dy: -step)
+            .intersection(CGRect(origin: .zero, size: previewPointSize))
+        guard !r.isNull, r.width >= 1, r.height >= 1 else { return }
+        areaString = r.storageString
+    }
+
     private func dragGesture(fit: CGRect) -> some Gesture {
         DragGesture(minimumDistance: 4)
+            .updating($dragActive) { _, state, _ in state = true }
             .onChanged { v in
-                let r = CGRect(
-                    x: min(v.startLocation.x, v.location.x),
-                    y: min(v.startLocation.y, v.location.y),
-                    width: abs(v.location.x - v.startLocation.x),
-                    height: abs(v.location.y - v.startLocation.y)
-                ).intersection(fit)
-                dragCurrent = r.isNull ? nil : r
+                if dragMode == nil { dragMode = hitTest(v.startLocation, fit: fit) }
+                let t = CGSize(
+                    width: v.location.x - v.startLocation.x,
+                    height: v.location.y - v.startLocation.y)
+                var r: CGRect
+                switch dragMode! {
+                case .create:
+                    // fit 안으로 클램프 — 이미지 밖 드래그로 교집합이 비어 옛 선택이 깜빡이지 않게
+                    let a = clampPoint(v.startLocation, to: fit)
+                    let b = clampPoint(v.location, to: fit)
+                    r = CGRect(
+                        x: min(a.x, b.x), y: min(a.y, b.y),
+                        width: abs(b.x - a.x), height: abs(b.y - a.y))
+                    // 레터박스 여백만 오가는 드래그는 0-크기 sliver — 표시하지 않음
+                    if r.width < 1 || r.height < 1 { return }
+                case .move(let orig):
+                    r = orig.offsetBy(dx: t.width, dy: t.height)
+                    // 선택이 fit보다 커도 min/max가 역전되지 않게 상한을 하한 이상으로
+                    r.origin.x = min(max(r.origin.x, fit.minX), max(fit.minX, fit.maxX - r.width))
+                    r.origin.y = min(max(r.origin.y, fit.minY), max(fit.minY, fit.maxY - r.height))
+                case .resize(let orig, let ex, let ey):
+                    r = orig
+                    if ex == .min {
+                        r.origin.x += t.width
+                        r.size.width -= t.width
+                    } else if ex == .max {
+                        r.size.width += t.width
+                    }
+                    if ey == .min {
+                        r.origin.y += t.height
+                        r.size.height -= t.height
+                    } else if ey == .max {
+                        r.size.height += t.height
+                    }
+                    r = r.standardized  // 반대편을 넘어가면 뒤집기
+                }
+                r = r.intersection(fit)
+                if !r.isNull { dragCurrent = r }
             }
             .onEnded { _ in
-                defer { dragCurrent = nil }
-                guard let r = dragCurrent, previewPointSize.width > 0,
-                    r.width > 4, r.height > 4
-                else { return }
+                let mode = dragMode
+                defer {
+                    dragCurrent = nil
+                    dragMode = nil
+                }
+                guard let r = dragCurrent, previewPointSize.width > 0 else { return }
+                // 새로 그리기만 실수 방지 최소 크기 적용 — 이동/리사이즈는 그대로 커밋
+                if case .create = mode ?? .create, r.width <= 4 || r.height <= 4 { return }
                 let sx = previewPointSize.width / fit.width
                 let sy = previewPointSize.height / fit.height
+                let w = max(1, r.width * sx)
+                let h = max(1, r.height * sy)
                 areaString = CGRect(
-                    x: (r.minX - fit.minX) * sx, y: (r.minY - fit.minY) * sy,
-                    width: r.width * sx, height: r.height * sy
+                    // 창 max 변에서 0으로 접힌 리사이즈가 창 밖 좌표로 커밋되지 않게 origin도 클램프
+                    x: min((r.minX - fit.minX) * sx, previewPointSize.width - w),
+                    y: min((r.minY - fit.minY) * sy, previewPointSize.height - h),
+                    width: w, height: h
                 ).storageString
                 fullWindow = false
-                status = "영역 지정 완료 — 4단계에서 '테스트 1회'로 확인하세요"
+                status = "영역 지정 완료 — 드래그로 이동, 핸들로 크기 조절, ⇧드래그로 새로 그리기"
             }
     }
 
