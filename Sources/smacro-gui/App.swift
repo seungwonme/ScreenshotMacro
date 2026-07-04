@@ -81,6 +81,7 @@ struct ContentView: View {
     @State private var lastSessionDir: URL?
     @State private var capturingKey = false
     @State private var keyMonitor: Any?
+    @State private var nudgeMonitor: Any?  // 2단계 방향키 영역 이동
     @State private var refreshing = false
     @State private var screenPermissionDenied = false
     @State private var windowFallbackNote: String?  // 원래 창을 잃고 같은 앱 다른 창으로 폴백했을 때 안내
@@ -382,6 +383,8 @@ struct ContentView: View {
             }
         }
         .disabled(running)
+        .onAppear { startNudgeMonitor() }
+        .onDisappear { stopNudgeMonitor() }
     }
 
     private var previewEditor: some View {
@@ -831,7 +834,39 @@ struct ContentView: View {
             y: max(0, content.minY + (content.height - a.height) / 2),
             width: a.width, height: a.height
         ).storageString
-        status = "영역을 창 중앙으로 정렬했습니다"
+        status = "영역을 창 중앙으로 정렬했습니다 — 방향키로 미세 이동 (⇧: 10pt)"
+    }
+
+    /// 방향키로 영역 이동 (1pt, ⇧=10pt) — 2단계에서만, 텍스트 필드 편집 중엔 개입 안 함
+    private func startNudgeMonitor() {
+        guard nudgeMonitor == nil else { return }
+        nudgeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            guard !fullWindow, !running, let a = area, previewPointSize != .zero,
+                // 필드 편집 중 커서 이동(field editor는 NSTextView)을 방향키가 뺏지 않게
+                !(NSApp.keyWindow?.firstResponder is NSTextView)
+            else { return event }
+            let step: CGFloat = event.modifierFlags.contains(.shift) ? 10 : 1
+            var dx: CGFloat = 0, dy: CGFloat = 0
+            switch event.keyCode {
+            case 123: dx = -step  // ←
+            case 124: dx = step  // →
+            case 125: dy = step  // ↓
+            case 126: dy = -step  // ↑
+            default: return event
+            }
+            var r = a.offsetBy(dx: dx, dy: dy)
+            r.origin.x = min(max(0, r.origin.x), max(0, previewPointSize.width - r.width))
+            r.origin.y = min(max(0, r.origin.y), max(0, previewPointSize.height - r.height))
+            areaString = r.storageString
+            return nil  // 소비 (스크롤 등으로 새지 않게)
+        }
+    }
+
+    private func stopNudgeMonitor() {
+        if let m = nudgeMonitor {
+            NSEvent.removeMonitor(m)
+            nudgeMonitor = nil
+        }
     }
 
     /// 중심 고정으로 사방 step(창 포인트)만큼 키우기/줄이기 — 창 경계 클램프
