@@ -166,6 +166,30 @@ final class CoreTests: XCTestCase {
         XCTAssertTrue(antiPatternMatches(in: [titlePage], patterns: [pattern]).isEmpty)
     }
 
+    func testAntiPatternPopupIgnoresChangingPageBehindIt() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let pattern = dir.appendingPathComponent("popup-pattern.png")
+        try writePage(to: pattern) { ctx, _, _ in
+            drawTextBars(ctx, x: 40, y: 40, rows: 6)
+            drawLastPagePopup(ctx)
+        }
+        let popupOnDifferentPage = dir.appendingPathComponent("popup-other-page.png")
+        try writePage(to: popupOnDifferentPage) { ctx, _, _ in
+            drawTextBars(ctx, x: 140, y: 40, rows: 8)
+            drawLastPagePopup(ctx)
+        }
+        let realPage = dir.appendingPathComponent("real-page.png")
+        try writePage(to: realPage) { ctx, _, _ in
+            drawTextBars(ctx, x: 80, y: 150, rows: 4)
+        }
+
+        XCTAssertEqual(
+            antiPatternMatches(in: [popupOnDifferentPage, realPage], patterns: [pattern]),
+            [popupOnDifferentPage])
+    }
+
     func testMaxBlockRMS() {
         let n = 64 * 80
         let blank = [UInt8](repeating: 255, count: n)
@@ -208,6 +232,24 @@ final class CoreTests: XCTestCase {
         ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
         draw(ctx, w, h)
         try savePNG(try XCTUnwrap(ctx.makeImage()), to: url)
+    }
+
+    private func drawTextBars(_ ctx: CGContext, x: Int, y: Int, rows: Int) {
+        ctx.setFillColor(CGColor(gray: 0.15, alpha: 1))
+        for row in 0..<rows {
+            ctx.fill(CGRect(x: x, y: y + row * 18, width: 120 + (row % 3) * 30, height: 7))
+        }
+    }
+
+    private func drawLastPagePopup(_ ctx: CGContext) {
+        ctx.setFillColor(CGColor(gray: 0.98, alpha: 1))
+        ctx.fill(CGRect(x: 40, y: 160, width: 240, height: 95))
+        ctx.setFillColor(CGColor(gray: 0.05, alpha: 1))
+        ctx.fill(CGRect(x: 112, y: 184, width: 96, height: 12))
+        ctx.setStrokeColor(CGColor(gray: 0.6, alpha: 1))
+        ctx.stroke(CGRect(x: 115, y: 215, width: 90, height: 28))
+        ctx.setFillColor(CGColor(gray: 0.45, alpha: 1))
+        ctx.fill(CGRect(x: 135, y: 225, width: 50, height: 6))
     }
 
     /// opaque 영역(좌상단 원점 픽셀 좌표)만 흰색, 나머지는 투명한 테스트 이미지

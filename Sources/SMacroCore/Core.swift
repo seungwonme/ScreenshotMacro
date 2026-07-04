@@ -355,9 +355,23 @@ public func antiPatterns() throws -> [URL] {
     try collectPNGs(in: antiPatternsDir().path)
 }
 
-/// 비교용 그레이스케일 64x80 지문. 종횡비는 무시하고 고정 크기로 리샘플 (양쪽 동일 조건 비교).
-public func grayFingerprint(at url: URL, width: Int = 64, height: Int = 80) -> [UInt8]? {
-    guard let image = fileThumbnail(at: url, maxPixel: 256),
+/// 디코드된 이미지에서 그레이스케일 지문 추출. crop은 이미지 기준 상대 좌표(0~1, 좌상단 원점).
+/// 종횡비는 무시하고 고정 크기로 리샘플 (양쪽 동일 조건 비교).
+private func grayFingerprint(image source: CGImage, width: Int, height: Int, crop: CGRect? = nil) -> [UInt8]? {
+    var image = source
+    if let crop {
+        let x = max(0, min(1, crop.minX))
+        let y = max(0, min(1, crop.minY))
+        let maxX = max(x, min(1, crop.maxX))
+        let maxY = max(y, min(1, crop.maxY))
+        let rect = CGRect(
+            x: CGFloat(image.width) * x, y: CGFloat(image.height) * y,
+            width: CGFloat(image.width) * (maxX - x), height: CGFloat(image.height) * (maxY - y)
+        ).integral
+        guard let cropped = image.cropping(to: rect) else { return nil }
+        image = cropped
+    }
+    guard
         let ctx = CGContext(
             data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width,
             space: CGColorSpaceCreateDeviceGray(),
@@ -369,6 +383,15 @@ public func grayFingerprint(at url: URL, width: Int = 64, height: Int = 80) -> [
     let count = width * height
     return Array(UnsafeBufferPointer(start: data.bindMemory(to: UInt8.self, capacity: count), count: count))
 }
+
+/// 비교용 그레이스케일 지문. 파일은 512px 썸네일로 한 번만 디코드한다 (풀해상도 디코드 회피).
+public func grayFingerprint(at url: URL, width: Int = 64, height: Int = 80, crop: CGRect? = nil) -> [UInt8]? {
+    guard let thumb = fileThumbnail(at: url, maxPixel: fingerprintDecodeSize) else { return nil }
+    return grayFingerprint(image: thumb, width: width, height: height, crop: crop)
+}
+
+/// 지문용 썸네일 디코드 크기. 팝업 밴드(전체의 44% x 16%)를 64x32로 만들 때도 소스가 남게 512.
+private let fingerprintDecodeSize = 512
 
 /// 두 지문의 8x8 블록별 RMS 픽셀 차 중 최댓값 (0=동일, 255=최대). 길이 불일치는 매칭 불가로 무한대.
 /// 전역 평균 RMS는 저대비 패턴(흰 배경 + 연회색 아이콘)에서 여백 많은 실제 페이지와
@@ -395,16 +418,43 @@ func maxBlockRMS(_ a: [UInt8], _ b: [UInt8], width: Int = 64, height: Int = 80, 
 /// 같은 로딩 화면의 재등장은 0, 가장 비슷한 실제 페이지(간지·속표지)는 8.6·38.2 — 4는 2배+ 마진.
 public let antiPatternRMSThreshold: Double = 4
 
+private let popupCrop = CGRect(x: 0.28, y: 0.42, width: 0.44, height: 0.16)
+
+private struct AntiPatternPrint {
+    let full: [UInt8]
+    let popup: [UInt8]?
+}
+
+private func popupFingerprintIfModalLike(at url: URL) -> [UInt8]? {
+    guard let fp = grayFingerprint(at: url, width: 64, height: 32, crop: popupCrop) else { return nil }
+    // spartan: 전자책 모달 고정 밴드 하나만 - 다른 모달 레이아웃이 필요해지면 패턴별 밴드로 확장.
+    return fp.filter { $0 < 120 }.count >= 10 ? fp : nil
+}
+
 /// files 중 안티 패턴 기준 이미지와 거의 같은 프레임 목록 (입력 순서 유지).
 /// 중복 dedup(완전 동일 해시)과 달리 전부 삭제 대상 — 남길 한 장이 없다.
+/// 팝업(모달) 밴드 비교는 모달형 패턴이 있을 때만, 파일당 디코드는 썸네일 1회만 수행.
 public func antiPatternMatches(
     in files: [URL], patterns: [URL], threshold: Double = antiPatternRMSThreshold
 ) -> [URL] {
-    let prints = patterns.compactMap { grayFingerprint(at: $0) }
+    let prints = patterns.compactMap { pattern -> AntiPatternPrint? in
+        guard let full = grayFingerprint(at: pattern) else { return nil }
+        return AntiPatternPrint(full: full, popup: popupFingerprintIfModalLike(at: pattern))
+    }
     guard !prints.isEmpty else { return [] }
+    let hasModalPattern = prints.contains { $0.popup != nil }
     return files.filter { f in
-        guard let fp = grayFingerprint(at: f) else { return false }
-        return prints.contains { maxBlockRMS($0, fp) < threshold }
+        guard let thumb = fileThumbnail(at: f, maxPixel: fingerprintDecodeSize),
+            let fp = grayFingerprint(image: thumb, width: 64, height: 80)
+        else { return false }
+        if prints.contains(where: { maxBlockRMS($0.full, fp) < threshold }) { return true }
+        guard hasModalPattern,
+            let popup = grayFingerprint(image: thumb, width: 64, height: 32, crop: popupCrop)
+        else { return false }
+        return prints.contains { pattern in
+            guard let patternPopup = pattern.popup else { return false }
+            return maxBlockRMS(patternPopup, popup, width: 64, height: 32) < threshold
+        }
     }
 }
 
