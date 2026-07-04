@@ -25,6 +25,15 @@ struct SMacroApp: App {
     }
 }
 
+/// 영역 드래그의 종류: 새로 그리기 / 기존 선택 이동 / 핸들 리사이즈
+enum AreaDragMode {
+    case create
+    case move(CGRect)
+    case resize(CGRect, x: RectEdge?, y: RectEdge?)
+}
+
+enum RectEdge { case min, max }
+
 struct TargetWindow: Identifiable, Hashable {
     let id: CGWindowID
     let pid: pid_t
@@ -62,6 +71,8 @@ struct ContentView: View {
     @State private var preview: CGImage?
     @State private var previewPointSize: CGSize = .zero
     @State private var dragCurrent: CGRect?
+    @State private var dragMode: AreaDragMode?
+    @State private var dragStart: CGPoint?  // 제스처 취소로 잔존한 상태를 다음 드래그에서 감지
     @State private var lastFrame: CGImage?  // 실행/테스트 중 방금 저장된 컷
     @State private var testPassed = false
     @State private var status = ""
@@ -359,7 +370,7 @@ struct ContentView: View {
                         .resizable()
                         .frame(width: fit.width, height: fit.height)
                         .offset(x: fit.minX, y: fit.minY)
-                    if !fullWindow, let rect = selectionRect(in: fit) {
+                    if !fullWindow || dragCurrent != nil, let rect = selectionRect(in: fit) {
                         // 선택 밖은 어둡게 — 어디가 찍히는지 즉시 보이게
                         Path { p in
                             p.addRect(CGRect(origin: .zero, size: geo.size))
@@ -370,11 +381,41 @@ struct ContentView: View {
                             .stroke(.orange, lineWidth: 2)
                             .frame(width: rect.width, height: rect.height)
                             .offset(x: rect.minX, y: rect.minY)
+                        // 리사이즈 핸들 (모서리 4 + 변 중앙 4)
+                        ForEach(0..<handlePoints(of: rect).count, id: \.self) { i in
+                            Rectangle()
+                                .fill(.white)
+                                .frame(width: 7, height: 7)
+                                .overlay(Rectangle().stroke(.orange, lineWidth: 1))
+                                .position(handlePoints(of: rect)[i])
+                        }
+                        // 크기 라벨 (창 기준 포인트)
+                        if fit.width > 0 {
+                            let sx = previewPointSize.width / fit.width
+                            let sy = previewPointSize.height / fit.height
+                            Text(
+                                "\(Int((rect.width * sx).rounded()))×\(Int((rect.height * sy).rounded()))pt"
+                            )
+                            .font(.caption.monospaced())
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(.black.opacity(0.7), in: Capsule())
+                            .foregroundStyle(.white)
+                            .position(
+                                x: min(max(rect.midX, 40), geo.size.width - 40),
+                                y: min(rect.maxY + 16, geo.size.height - 12))
+                        }
                     }
                 }
                 .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
                 .contentShape(Rectangle())
                 .gesture(dragGesture(fit: fit))
+                .onTapGesture(count: 2) {
+                    // 선택이 프리뷰 전체를 덮으면 새로 그릴 자리가 없다 — 더블클릭으로 해제
+                    guard !fullWindow, area != nil else { return }
+                    areaString = ""
+                    status = "선택 해제 — 드래그로 새 영역을 지정하세요"
+                }
             }
         }
     }
@@ -702,30 +743,102 @@ struct ContentView: View {
             width: area.width * sx, height: area.height * sy)
     }
 
+    /// 핸들 위치: 모서리 4 + 변 중앙 4
+    private func handlePoints(of r: CGRect) -> [CGPoint] {
+        [
+            CGPoint(x: r.minX, y: r.minY), CGPoint(x: r.midX, y: r.minY),
+            CGPoint(x: r.maxX, y: r.minY), CGPoint(x: r.minX, y: r.midY),
+            CGPoint(x: r.maxX, y: r.midY), CGPoint(x: r.minX, y: r.maxY),
+            CGPoint(x: r.midX, y: r.maxY), CGPoint(x: r.maxX, y: r.maxY),
+        ]
+    }
+
+    /// 드래그 시작점이 기존 선택의 핸들/내부/외부 중 어디인지 판정
+    private func hitTest(_ p: CGPoint, fit: CGRect) -> AreaDragMode {
+        // Shift+드래그 = 기존 선택 무시하고 항상 새로 그리기
+        if NSEvent.modifierFlags.contains(.shift) { return .create }
+        guard !fullWindow, let r = selectionRect(in: fit) else { return .create }
+        // 작은 선택에서도 내부 move 존이 남도록 톨러런스를 줄인다
+        let tol = min(10, r.width / 3, r.height / 3)
+        let dxMin = abs(p.x - r.minX), dxMax = abs(p.x - r.maxX)
+        let dyMin = abs(p.y - r.minY), dyMax = abs(p.y - r.maxY)
+        let ex: RectEdge? = min(dxMin, dxMax) <= tol ? (dxMin <= dxMax ? .min : .max) : nil
+        let ey: RectEdge? = min(dyMin, dyMax) <= tol ? (dyMin <= dyMax ? .min : .max) : nil
+        let insideX = p.x > r.minX - tol && p.x < r.maxX + tol
+        let insideY = p.y > r.minY - tol && p.y < r.maxY + tol
+        if (ex != nil || ey != nil), insideX, insideY { return .resize(r, x: ex, y: ey) }
+        if r.contains(p) { return .move(r) }
+        return .create
+    }
+
+    private func clampPoint(_ p: CGPoint, to rect: CGRect) -> CGPoint {
+        CGPoint(
+            x: min(max(p.x, rect.minX), rect.maxX),
+            y: min(max(p.y, rect.minY), rect.maxY))
+    }
+
     private func dragGesture(fit: CGRect) -> some Gesture {
         DragGesture(minimumDistance: 4)
             .onChanged { v in
-                let r = CGRect(
-                    x: min(v.startLocation.x, v.location.x),
-                    y: min(v.startLocation.y, v.location.y),
-                    width: abs(v.location.x - v.startLocation.x),
-                    height: abs(v.location.y - v.startLocation.y)
-                ).intersection(fit)
-                dragCurrent = r.isNull ? nil : r
+                // 제스처 취소(onEnded 미호출)로 잔존한 상태는 startLocation이 달라져 감지된다
+                if dragMode == nil || dragStart != v.startLocation {
+                    dragStart = v.startLocation
+                    dragMode = hitTest(v.startLocation, fit: fit)
+                }
+                let t = CGSize(
+                    width: v.location.x - v.startLocation.x,
+                    height: v.location.y - v.startLocation.y)
+                var r: CGRect
+                switch dragMode! {
+                case .create:
+                    // fit 안으로 클램프 — 이미지 밖 드래그로 교집합이 비어 옛 선택이 깜빡이지 않게
+                    let a = clampPoint(v.startLocation, to: fit)
+                    let b = clampPoint(v.location, to: fit)
+                    r = CGRect(
+                        x: min(a.x, b.x), y: min(a.y, b.y),
+                        width: abs(b.x - a.x), height: abs(b.y - a.y))
+                case .move(let orig):
+                    r = orig.offsetBy(dx: t.width, dy: t.height)
+                    // 선택이 fit보다 커도 min/max가 역전되지 않게 상한을 하한 이상으로
+                    r.origin.x = min(max(r.origin.x, fit.minX), max(fit.minX, fit.maxX - r.width))
+                    r.origin.y = min(max(r.origin.y, fit.minY), max(fit.minY, fit.maxY - r.height))
+                case .resize(let orig, let ex, let ey):
+                    r = orig
+                    if ex == .min {
+                        r.origin.x += t.width
+                        r.size.width -= t.width
+                    } else if ex == .max {
+                        r.size.width += t.width
+                    }
+                    if ey == .min {
+                        r.origin.y += t.height
+                        r.size.height -= t.height
+                    } else if ey == .max {
+                        r.size.height += t.height
+                    }
+                    r = r.standardized  // 반대편을 넘어가면 뒤집기
+                }
+                r = r.intersection(fit)
+                if !r.isNull { dragCurrent = r }
             }
             .onEnded { _ in
-                defer { dragCurrent = nil }
-                guard let r = dragCurrent, previewPointSize.width > 0,
-                    r.width > 4, r.height > 4
-                else { return }
+                let mode = dragMode
+                defer {
+                    dragCurrent = nil
+                    dragMode = nil
+                    dragStart = nil
+                }
+                guard let r = dragCurrent, previewPointSize.width > 0 else { return }
+                // 새로 그리기만 실수 방지 최소 크기 적용 — 이동/리사이즈는 그대로 커밋
+                if case .create = mode ?? .create, r.width <= 4 || r.height <= 4 { return }
                 let sx = previewPointSize.width / fit.width
                 let sy = previewPointSize.height / fit.height
                 areaString = CGRect(
                     x: (r.minX - fit.minX) * sx, y: (r.minY - fit.minY) * sy,
-                    width: r.width * sx, height: r.height * sy
+                    width: max(1, r.width * sx), height: max(1, r.height * sy)
                 ).storageString
                 fullWindow = false
-                status = "영역 지정 완료 — 4단계에서 '테스트 1회'로 확인하세요"
+                status = "영역 지정 완료 — 드래그로 이동, 핸들로 크기 조절, ⇧드래그로 새로 그리기"
             }
     }
 
