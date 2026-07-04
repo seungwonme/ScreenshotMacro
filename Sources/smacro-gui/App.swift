@@ -18,7 +18,8 @@ struct SMacroApp: App {
     }
 
     var body: some Scene {
-        WindowGroup("Screenshot Macro") {
+        // 단일 창: Cmd+N 다중 창이 뜨면 RunState/HUD 싱글턴이 충돌한다
+        Window("Screenshot Macro", id: "main") {
             ContentView()
         }
     }
@@ -51,10 +52,12 @@ struct ContentView: View {
     @AppStorage("areaString") private var areaString = ""  // "x,y,w,h" (창 기준 포인트)
     @AppStorage("outputBase") private var outputBase =
         NSString(string: "~/Pictures/ScreenshotMacro").expandingTildeInPath
+    @AppStorage("openFinderOnFinish") private var openFinderOnFinish = true
+    @AppStorage("targetSizeString") private var targetSizeString = ""  // area/clickPoint가 기준한 창 크기 "w,h"
 
     @State private var currentStep = 1
     @State private var targets: [TargetWindow] = []
-    @State private var thumbs: [CGWindowID: CGImage] = [:]
+    @State private var thumbs: [CGWindowID: CGImage?] = [:]  // 값 nil = 캡처 실패, 키 없음 = 로드 중
     @State private var selected: TargetWindow?
     @State private var preview: CGImage?
     @State private var previewPointSize: CGSize = .zero
@@ -62,34 +65,25 @@ struct ContentView: View {
     @State private var lastFrame: CGImage?  // 실행/테스트 중 방금 저장된 컷
     @State private var testPassed = false
     @State private var status = ""
-    @State private var progress = 0
     @State private var macroTask: Task<Void, Never>?
     @State private var lastSessionDir: URL?
     @State private var capturingKey = false
     @State private var keyMonitor: Any?
-    @State private var countdown: Int?
+    @State private var refreshing = false
+    @State private var screenPermissionDenied = false
+    @State private var windowFallbackNote: String?  // 원래 창을 잃고 같은 앱 다른 창으로 폴백했을 때 안내
+
+    /// 실행 진행 상태 (progress/reps/countdown/error) - HUD와 공유하는 단일 소스
+    @ObservedObject private var runState = RunState.shared
 
     // 중복 정리 시트
     @State private var showDuplicates = false
-    @State private var dupScanDir: URL?
-    @State private var dupGroups: [[URL]] = []
-    @State private var dupSelected: Set<URL> = []  // 삭제할 파일들 (전체 선택이 기본)
-    @State private var dupThumbs: [URL: CGImage] = [:]
-    @State private var dupStatus = ""
 
     private var running: Bool { macroTask != nil }
 
-    private var area: CGRect? {
-        let p = areaString.split(separator: ",").compactMap { Double($0) }
-        guard p.count == 4, p[2] > 0, p[3] > 0 else { return nil }
-        return CGRect(x: p[0], y: p[1], width: p[2], height: p[3])
-    }
+    private var area: CGRect? { CGRect(storageString: areaString) }
 
-    private var clickPoint: CGPoint? {
-        let p = clickPointString.split(separator: ",").compactMap { Double($0) }
-        guard p.count == 2 else { return nil }
-        return CGPoint(x: p[0], y: p[1])
-    }
+    private var clickPoint: CGPoint? { CGPoint(storageString: clickPointString) }
 
     private var actionLabel: String {
         actionType == "key" ? "\(key) 키" : "클릭 (\(clickPointString))"
@@ -108,6 +102,11 @@ struct ContentView: View {
             return timingOK && actionOK
         default: return testPassed
         }
+    }
+
+    /// 스텝 바 이동 가능 조건: 뒤로는 자유, 앞으로는 사이 단계가 모두 완료돼야 (푸터 '다음'과 동일 규칙)
+    private func stepReachable(_ i: Int) -> Bool {
+        i <= currentStep || (currentStep..<i).allSatisfy(stepComplete)
     }
 
     var body: some View {
@@ -131,8 +130,16 @@ struct ContentView: View {
         .frame(minWidth: 800, minHeight: 600)
         .task { await refreshTargets() }
         .sheet(isPresented: $showDuplicates) {
-            duplicatesSheet
+            DuplicatesSheetView(initialDir: latestSessionDir())
         }
+        // 동작 결과에 영향을 주는 설정이 바뀌면 테스트 통과를 무효화 (스텝 바 초록 체크의 신뢰 유지).
+        // 저장 값 기준이라 어떤 편집 경로(드래그, 수동 입력, 키 캡처)든 자동으로 걸린다.
+        .onChange(of: actionType) { testPassed = false }
+        .onChange(of: foregroundMode) { testPassed = false }
+        .onChange(of: fullWindow) { testPassed = false }
+        .onChange(of: areaString) { testPassed = false }
+        .onChange(of: clickPointString) { testPassed = false }
+        .onChange(of: keyCode) { testPassed = false }
     }
 
     // MARK: - 상단 스텝 바
@@ -164,6 +171,7 @@ struct ContentView: View {
                     }
                 }
                 .buttonStyle(.plain)
+                .disabled(running || !stepReachable(i))
                 if i < 4 {
                     Rectangle()
                         .fill(stepComplete(i) ? Color.green.opacity(0.6) : Color.secondary.opacity(0.3))
@@ -187,11 +195,12 @@ struct ContentView: View {
             Spacer()
             if currentStep > 1 {
                 Button("이전") { currentStep -= 1 }
+                    .disabled(running)  // 실행 중 이동하면 중지 버튼이 화면에서 사라짐
             }
             if currentStep < 4 {
                 Button("다음") { currentStep += 1 }
                     .buttonStyle(.borderedProminent)
-                    .disabled(!stepComplete(currentStep))
+                    .disabled(running || !stepComplete(currentStep))
             }
         }
     }
@@ -210,62 +219,95 @@ struct ContentView: View {
                 } label: {
                     Label("새로고침", systemImage: "arrow.clockwise")
                 }
+                .keyboardShortcut("r", modifiers: .command)
             }
             .padding(12)
-            ScrollView {
-                LazyVGrid(
-                    columns: [GridItem(.adaptive(minimum: 210), spacing: 12)], spacing: 12
-                ) {
-                    ForEach(targets) { t in
-                        targetCell(t)
+            if screenPermissionDenied {
+                ContentUnavailableView {
+                    Label("화면 기록 권한이 필요합니다", systemImage: "video.slash")
+                } description: {
+                    Text(
+                        "창 목록과 캡처에 화면 기록 권한이 필요합니다.\n허용한 뒤에는 실행한 앱(터미널 등)을 완전히 종료했다가 다시 실행해야 반영됩니다."
+                    )
+                } actions: {
+                    Button("시스템 설정 열기") {
+                        NSWorkspace.shared.open(
+                            URL(
+                                string:
+                                    "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"
+                            )!)
                     }
+                    .buttonStyle(.borderedProminent)
+                    Button("다시 확인") { Task { await refreshTargets() } }
                 }
-                .padding(.horizontal, 12)
-                .padding(.bottom, 12)
+            } else {
+                ScrollView {
+                    LazyVGrid(
+                        columns: [GridItem(.adaptive(minimum: 210), spacing: 12)], spacing: 12
+                    ) {
+                        ForEach(targets) { t in
+                            targetCell(t)
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 12)
+                }
             }
         }
         .disabled(running)
     }
 
     private func targetCell(_ t: TargetWindow) -> some View {
-        VStack(spacing: 6) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 6).fill(.quaternary.opacity(0.5))
-                if let img = thumbs[t.id] {
-                    Image(img, scale: 1, label: Text(t.appName))
-                        .resizable()
-                        .scaledToFit()
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
-                } else {
-                    ProgressView().controlSize(.small)
+        Button {
+            select(t)
+        } label: {
+            VStack(spacing: 6) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 6).fill(.quaternary.opacity(0.5))
+                    switch thumbs[t.id] {
+                    case .some(.some(let img)):
+                        Image(img, scale: 1, label: Text(t.appName))
+                            .resizable()
+                            .scaledToFit()
+                            .clipShape(RoundedRectangle(cornerRadius: 6))
+                    case .some(.none):
+                        // 캡처 실패: 영구 스피너 대신 플레이스홀더 (로딩 중과 구분)
+                        Image(systemName: "macwindow")
+                            .font(.system(size: 28))
+                            .foregroundStyle(.tertiary)
+                    case .none:
+                        ProgressView().controlSize(.small)
+                    }
+                }
+                .frame(height: 130)
+                HStack(spacing: 6) {
+                    if let icon = t.icon {
+                        Image(nsImage: icon).resizable().frame(width: 18, height: 18)
+                    }
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(t.appName).font(.caption.bold()).lineLimit(1)
+                        Text(t.title.isEmpty ? "(제목 없음)" : t.title)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    Spacer(minLength: 0)
                 }
             }
-            .frame(height: 130)
-            HStack(spacing: 6) {
-                if let icon = t.icon {
-                    Image(nsImage: icon).resizable().frame(width: 18, height: 18)
-                }
-                VStack(alignment: .leading, spacing: 0) {
-                    Text(t.appName).font(.caption.bold()).lineLimit(1)
-                    Text(t.title.isEmpty ? "(제목 없음)" : t.title)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-                Spacer(minLength: 0)
-            }
+            .padding(8)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(selected == t ? Color.accentColor.opacity(0.12) : Color.clear))
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(
+                        selected == t ? Color.accentColor : Color.secondary.opacity(0.25),
+                        lineWidth: selected == t ? 2 : 1))
+            .contentShape(Rectangle())
         }
-        .padding(8)
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(selected == t ? Color.accentColor.opacity(0.12) : Color.clear))
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(
-                    selected == t ? Color.accentColor : Color.secondary.opacity(0.25),
-                    lineWidth: selected == t ? 2 : 1))
-        .contentShape(Rectangle())
-        .onTapGesture { select(t) }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(t.appName) \(t.title.isEmpty ? "(제목 없음)" : t.title)")
+        .accessibilityAddTraits(selected == t ? .isSelected : [])
     }
 
     // MARK: - Step 2: 캡처 영역
@@ -273,11 +315,12 @@ struct ContentView: View {
     private var stepArea: some View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
-                Picker("", selection: $fullWindow) {
+                Picker("캡처 범위", selection: $fullWindow) {
                     Text("창 전체").tag(true)
                     Text("영역 지정").tag(false)
                 }
                 .pickerStyle(.segmented)
+                .labelsHidden()
                 .frame(width: 180)
                 if !fullWindow {
                     areaField("x", 0)
@@ -363,7 +406,7 @@ struct ContentView: View {
     private var stepSettings: some View {
         Form {
             Section("페이지 넘김 동작 (캡처 후 매번 실행)") {
-                Picker("", selection: $actionType) {
+                Picker("동작 종류", selection: $actionType) {
                     Text("키 입력").tag("key")
                     Text("마우스 클릭").tag("click")
                 }
@@ -382,7 +425,6 @@ struct ContentView: View {
                                     Button(name) {
                                         key = name
                                         keyCode = Int(keyCodes[name]!)
-                                        testPassed = false
                                     }
                                 }
                             }
@@ -408,7 +450,8 @@ struct ContentView: View {
             Section("타이밍") {
                 LabeledContent("반복 횟수") {
                     HStack(spacing: 4) {
-                        TextField("", value: $reps, format: .number)
+                        TextField("반복 횟수", value: $reps, format: .number)
+                            .labelsHidden()
                             .frame(width: 64)
                             .multilineTextAlignment(.trailing)
                         Stepper("", value: $reps, in: 1...10000, step: 10).labelsHidden()
@@ -417,7 +460,8 @@ struct ContentView: View {
                 }
                 LabeledContent("시작 대기") {
                     HStack(spacing: 4) {
-                        TextField("", value: $waitSeconds, format: .number)
+                        TextField("시작 대기(초)", value: $waitSeconds, format: .number)
+                            .labelsHidden()
                             .frame(width: 64)
                             .multilineTextAlignment(.trailing)
                         Stepper("", value: $waitSeconds, in: 0...60, step: 1).labelsHidden()
@@ -427,12 +471,14 @@ struct ContentView: View {
                 Toggle("캡처 간 딜레이 랜덤 (사람처럼 불규칙하게)", isOn: $randomDelay)
                 LabeledContent(randomDelay ? "딜레이 범위" : "딜레이") {
                     HStack(spacing: 4) {
-                        TextField("", value: $delayMin, format: .number)
+                        TextField("최소 딜레이(초)", value: $delayMin, format: .number)
+                            .labelsHidden()
                             .frame(width: 56)
                             .multilineTextAlignment(.trailing)
                         if randomDelay {
                             Text("~").foregroundStyle(.secondary)
-                            TextField("", value: $delayMax, format: .number)
+                            TextField("최대 딜레이(초)", value: $delayMax, format: .number)
+                                .labelsHidden()
                                 .frame(width: 56)
                                 .multilineTextAlignment(.trailing)
                         }
@@ -450,15 +496,23 @@ struct ContentView: View {
             }
             Section("저장 위치") {
                 HStack {
-                    TextField("", text: $outputBase).font(.caption.monospaced())
+                    TextField("저장 위치", text: $outputBase)
+                        .labelsHidden()
+                        .font(.caption.monospaced())
                     Button {
                         NSWorkspace.shared.open(URL(fileURLWithPath: outputBase))
                     } label: {
                         Image(systemName: "folder")
                     }
+                    .accessibilityLabel("저장 폴더 열기")
                 }
                 Text("실행할 때마다 01, 02, ... 세션 폴더가 자동 생성됩니다")
                     .font(.caption).foregroundStyle(.tertiary)
+                Toggle("완료되면 결과 폴더 열기", isOn: $openFinderOnFinish)
+                if openFinderOnFinish {
+                    Text("다른 작업 중 포커스를 뺏기기 싫으면 끄세요 (완료음은 항상 울립니다)")
+                        .font(.caption).foregroundStyle(.tertiary)
+                }
             }
         }
         .formStyle(.grouped)
@@ -496,10 +550,9 @@ struct ContentView: View {
                         guard fit.contains(location), previewPointSize.width > 0 else { return }
                         let sx = previewPointSize.width / fit.width
                         let sy = previewPointSize.height / fit.height
-                        clickPointString = String(
-                            format: "%.0f,%.0f",
-                            (location.x - fit.minX) * sx, (location.y - fit.minY) * sy)
-                        testPassed = false
+                        clickPointString = CGPoint(
+                            x: (location.x - fit.minX) * sx, y: (location.y - fit.minY) * sy
+                        ).storageString
                     }
                 }
                 .frame(height: 200)
@@ -536,12 +589,17 @@ struct ContentView: View {
             .padding(.top, 12)
 
             if running {
-                ProgressView(value: Double(progress), total: Double(max(reps, 1)))
-                    .padding(.horizontal, 16)
+                ProgressView(
+                    value: Double(runState.progress), total: Double(max(runState.reps, 1))
+                )
+                .padding(.horizontal, 16)
                 HStack {
-                    Text("\(progress)/\(reps) — 남은 시간 약 \(etaText(from: reps - progress))")
-                        .font(.callout)
+                    Text(
+                        "\(runState.progress)/\(runState.reps) — 남은 시간 약 \(etaText(from: runState.reps - runState.progress))"
+                    )
+                    .font(.callout)
                     Button("중지", role: .destructive) { macroTask?.cancel() }
+                        .keyboardShortcut(.cancelAction)
                 }
             } else {
                 HStack(spacing: 10) {
@@ -568,7 +626,7 @@ struct ContentView: View {
                         }
                     }
                     Button {
-                        openDuplicates(in: latestSessionDir())
+                        showDuplicates = true
                     } label: {
                         Label("중복 정리", systemImage: "square.on.square.dashed")
                     }
@@ -578,7 +636,7 @@ struct ContentView: View {
 
             // 카운트다운 / 실시간·테스트 캡처 미리보기
             Group {
-                if let countdown {
+                if let countdown = runState.countdown {
                     VStack(spacing: 14) {
                         Text("\(countdown)")
                             .font(.system(size: 120, weight: .bold, design: .rounded))
@@ -662,12 +720,11 @@ struct ContentView: View {
                 else { return }
                 let sx = previewPointSize.width / fit.width
                 let sy = previewPointSize.height / fit.height
-                let x = (r.minX - fit.minX) * sx
-                let y = (r.minY - fit.minY) * sy
-                areaString = String(
-                    format: "%.0f,%.0f,%.0f,%.0f", x, y, r.width * sx, r.height * sy)
+                areaString = CGRect(
+                    x: (r.minX - fit.minX) * sx, y: (r.minY - fit.minY) * sy,
+                    width: r.width * sx, height: r.height * sy
+                ).storageString
                 fullWindow = false
-                testPassed = false
                 status = "영역 지정 완료 — 4단계에서 '테스트 1회'로 확인하세요"
             }
     }
@@ -683,7 +740,6 @@ struct ContentView: View {
             if event.keyCode != 53 {  // esc는 취소
                 keyCode = Int(event.keyCode)
                 key = keyDisplayName(for: event)
-                testPassed = false
             }
             return nil  // 이벤트 소비 (앱 단축키로 새지 않게)
         }
@@ -707,34 +763,33 @@ struct ContentView: View {
     }
 
     private func refreshTargets() async {
+        // Cmd+R 연타로 두 루프가 썸네일 상태를 겹쳐 쓰는 것 방지
+        guard !refreshing else { return }
+        refreshing = true
+        defer { refreshing = false }
+        // 권한이 없으면 시스템 프롬프트 요청(최초 1회) 후 전용 빈 상태 뷰로 안내
+        guard screenRecordingGranted(requestIfNeeded: true) else {
+            screenPermissionDenied = true
+            return
+        }
+        screenPermissionDenied = false
         do {
-            try checkScreenRecording()
-            let content = try await SCShareableContent.excludingDesktopWindows(
-                false, onScreenWindowsOnly: true)
             let me = ProcessInfo.processInfo.processIdentifier
-            let windows = content.windows.filter { w in
-                guard let app = w.owningApplication else { return false }
-                // windowLayer 0 = 일반 앱 창 (Dock 배경·월페이퍼·오버레이는 다른 레이어)
-                // activationPolicy .regular = 도크에 뜨는 앱 (스크린샷 헬퍼 등 제외)
-                return app.processID != me && w.isOnScreen && w.windowLayer == 0
-                    && w.frame.width > 50 && w.frame.height > 50
-                    && !app.applicationName.isEmpty
-                    && NSRunningApplication(processIdentifier: app.processID)?
-                        .activationPolicy == .regular
-            }
-            targets = windows.map {
-                TargetWindow(
-                    id: $0.windowID, pid: $0.owningApplication!.processID,
-                    appName: $0.owningApplication!.applicationName, title: $0.title ?? "")
+            let windows = try await captureTargets(dockAppsOnly: true, excludePid: me)
+            targets = windows.compactMap { w in
+                guard let app = w.owningApplication else { return nil }
+                return TargetWindow(
+                    id: w.windowID, pid: app.processID,
+                    appName: app.applicationName, title: w.title ?? "")
             }
             .sorted { ($0.appName, $0.title) < ($1.appName, $1.title) }
             if selected == nil, let prev = targets.first(where: { $0.appName == savedAppName }) {
                 selected = prev
                 Task { await capturePreview() }
             }
-            // 썸네일은 뒤에서 순차 로드 (그리드가 먼저 뜨고 채워짐)
+            // 썸네일은 뒤에서 순차 로드 (그리드가 먼저 뜨고 채워짐). 실패는 nil 값으로 기록.
             for w in windows {
-                thumbs[w.windowID] = try? await captureThumbnail(window: w)
+                thumbs.updateValue(try? await captureThumbnail(window: w), forKey: w.windowID)
             }
         } catch {
             status = "오류: \(error)"
@@ -742,6 +797,12 @@ struct ContentView: View {
     }
 
     private func select(_ t: TargetWindow) {
+        // 다른 앱을 선택하면 이전 앱 창 기준의 영역/클릭 좌표는 무효 (크기가 같아도 다른 UI)
+        if t.appName != savedAppName {
+            areaString = ""
+            clickPointString = ""
+            targetSizeString = ""
+        }
         selected = t
         savedAppName = t.appName
         testPassed = false
@@ -757,17 +818,40 @@ struct ContentView: View {
             let window = try await findWindow(selected)
             preview = try await captureImage(window: window)
             previewPointSize = window.frame.size
-            status = "\(selected.appName) — \(Int(window.frame.width))x\(Int(window.frame.height))pt"
+            let sizeInfo =
+                "\(selected.appName) — \(Int(window.frame.width))x\(Int(window.frame.height))pt"
+            status = windowFallbackNote.map { "\($0). \(sizeInfo)" } ?? sizeInfo
+            invalidateStaleCoordinates(for: window.frame.size)
         } catch {
             status = "오류: \(error)"
         }
     }
 
+    /// 저장된 영역/클릭 좌표는 특정 창 크기 기준이다. 다른 크기의 창(다른 앱, 리사이즈된 창)에
+    /// 이전 좌표를 조용히 재사용하면 엉뚱한 위치를 클릭하므로 초기화하고 알린다.
+    private func invalidateStaleCoordinates(for size: CGSize) {
+        let sizeNow = CGPoint(x: size.width, y: size.height).storageString
+        defer { targetSizeString = sizeNow }
+        guard !targetSizeString.isEmpty, targetSizeString != sizeNow,
+            !areaString.isEmpty || !clickPointString.isEmpty
+        else { return }
+        areaString = ""
+        clickPointString = ""
+        status = "창 크기가 달라져 이전 캡처 영역/클릭 위치를 초기화했습니다. 다시 지정하세요"
+    }
+
     private func findWindow(_ t: TargetWindow) async throws -> SCWindow {
         let content = try await SCShareableContent.excludingDesktopWindows(
             false, onScreenWindowsOnly: true)
-        if let w = content.windows.first(where: { $0.windowID == t.id }) { return w }
-        return try await frontWindow(ofPid: t.pid)  // 창이 닫혔으면 같은 앱의 최대 창으로 폴백
+        if let w = content.windows.first(where: { $0.windowID == t.id }) {
+            windowFallbackNote = nil
+            return w
+        }
+        // 창이 닫혔으면 같은 앱의 최대 창으로 폴백 - 조용히 엉뚱한 창을 찍지 않게 상태에 표시
+        let fallback = try await frontWindow(ofPid: t.pid)
+        windowFallbackNote =
+            "주의: 원래 창을 찾지 못해 '\(fallback.title ?? t.appName)' 창으로 전환됨"
+        return fallback
     }
 
     private func testOnce() {
@@ -776,11 +860,21 @@ struct ContentView: View {
             defer { macroTask = nil }
             do {
                 try checkScreenRecording()
-                try checkAccessibility()
+                try checkAccessibility(promptUser: true)
+                windowFallbackNote = nil
                 let window = try await findWindow(selected)
+                if let note = windowFallbackNote {
+                    // 다른 창으로 테스트를 통과시키면 잘못된 창에 매크로를 돌리게 됨
+                    testPassed = false
+                    status = "테스트 중단 — \(note). 1단계에서 창을 다시 선택하세요"
+                    return
+                }
                 lastFrame = try await captureImage(
                     window: window, area: fullWindow ? nil : area)
-                let method = try performAction(window: window, pid: selected.pid)
+                let method = try Self.sendConfiguredAction(
+                    foreground: foregroundMode, actionType: actionType,
+                    keyCode: CGKeyCode(keyCode), clickPoint: clickPoint,
+                    window: window, pid: selected.pid)
                 testPassed = true
                 status = "테스트 OK — 캡처 1장 + \(actionLabel) 전송(방식: \(method)). 대상 앱이 실제로 반응했는지 확인하세요"
             } catch {
@@ -790,98 +884,141 @@ struct ContentView: View {
         }
     }
 
-    /// 설정된 페이지 넘김 동작(키 또는 클릭)을 대상 앱에 전송. 사용된 방식 문자열 반환.
-    @discardableResult
-    private func performAction(window: SCWindow, pid: pid_t) throws -> String {
-        if foregroundMode {
+    /// 페이지 넘김 동작(키 또는 클릭) 전송. usleep 블로킹 구간이 있어 매크로 루프에서는
+    /// detached로 호출한다 (메인에서 돌리면 그 구간 동안 중지 버튼이 무반응).
+    private nonisolated static func sendConfiguredAction(
+        foreground: Bool, actionType: String, keyCode: CGKeyCode, clickPoint: CGPoint?,
+        window: SCWindow, pid: pid_t
+    ) throws -> String {
+        if foreground {
             ensureFrontmost(pid: pid)
             if actionType == "click" {
                 guard let clickPoint else { throw die("클릭 위치가 지정되지 않았습니다 (3단계)") }
                 try sendClickGlobal(at: clickPoint, window: window)
                 return "전면 클릭"
             }
-            try sendKeyGlobal(code: CGKeyCode(keyCode))
+            try sendKeyGlobal(code: keyCode)
             return "전면 키 입력"
         }
         if actionType == "click" {
             guard let clickPoint else { throw die("클릭 위치가 지정되지 않았습니다 (3단계)") }
             return try sendClick(at: clickPoint, window: window, toPid: pid)
-        } else {
-            try sendKey(code: CGKeyCode(keyCode), toPid: pid)
-            return "키 입력"
         }
+        try sendKey(code: keyCode, toPid: pid)
+        return "키 입력"
     }
 
     private func startMacro() {
         guard let selected else { return }
-        let repsNow = reps
+        // TextField는 Stepper(1...10000)와 달리 0 이하 입력을 막지 않음 - 1...N 범위 크래시 방지
+        let repsNow = max(1, reps)
         let waitNow = max(0, waitSeconds)
         let dMin = max(0, delayMin)
         let dMax = randomDelay ? max(dMin, delayMax) : dMin
         let areaNow = fullWindow ? nil : area
         let baseNow = outputBase
         let dedupNow = dedupOnFinish
-        RunState.shared.stop = { macroTask?.cancel() }
+        let fgNow = foregroundMode
+        let actionNow = actionType
+        let keyCodeNow = CGKeyCode(keyCode)
+        let clickNow = clickPoint
+        let pidNow = selected.pid
+        runState.error = nil
 
-        macroTask = Task {
+        let task = Task {
             defer {
                 macroTask = nil
-                countdown = nil
-                RunState.shared.stop = nil
-                FloatingHUD.hide()
+                runState.stop = nil
+                runState.countdown = nil
+                // 오류로 끝났으면 HUD를 오류 상태로 남긴다 - 다른 Space에서 일하던 사용자가
+                // 'HUD가 사라짐'만으로는 정상 완료와 실패를 구분할 수 없기 때문
+                if runState.error == nil { FloatingHUD.hide() }
             }
             do {
                 try checkScreenRecording()
-                try checkAccessibility()
+                try checkAccessibility(promptUser: true)
                 let sessionDir = try nextSessionDir(base: baseNow)
                 lastSessionDir = sessionDir
-                progress = 0
                 lastFrame = nil
-                RunState.shared.progress = 0
-                RunState.shared.reps = repsNow
+                windowFallbackNote = nil
+                runState.progress = 0
+                runState.reps = repsNow
                 FloatingHUD.show()
 
                 for s in stride(from: Int(waitNow), through: 1, by: -1) {
                     if Task.isCancelled { break }
-                    countdown = s
+                    runState.countdown = s
                     status = "\(s)초 후 시작 — 대상 창을 첫 페이지로 준비하세요"
-                    try await Task.sleep(for: .seconds(1))
+                    do { try await Task.sleep(for: .seconds(1)) } catch is CancellationError { break }
                 }
-                countdown = nil
+                runState.countdown = nil
                 for i in 1...repsNow {
                     if Task.isCancelled { break }
                     let window = try await findWindow(selected)
+                    // 저장된 영역/클릭 좌표는 미리보기 시점의 창 기준이다. 다른 창(폴백)이나
+                    // 다른 크기(리사이즈)에 적용하면 조용히 엉뚱한 위치를 찍으므로 중단한다.
+                    if areaNow != nil || actionNow == "click" {
+                        if let note = windowFallbackNote {
+                            throw die("\(note). 저장된 좌표를 다른 창에 적용할 수 없어 중단합니다")
+                        }
+                        let sizeNow = CGPoint(x: window.frame.width, y: window.frame.height)
+                            .storageString
+                        if !targetSizeString.isEmpty, sizeNow != targetSizeString {
+                            throw die(
+                                "창 크기(\(sizeNow)pt)가 좌표를 지정한 시점(\(targetSizeString)pt)과 다릅니다. 2단계에서 다시 지정하세요")
+                        }
+                    }
                     let image = try await captureImage(window: window, area: areaNow)
-                    try savePNG(
-                        image,
-                        to: sessionDir.appendingPathComponent(
-                            String(format: "screenshot_%03d.png", i)))
-                    try performAction(window: window, pid: selected.pid)
+                    let dest = sessionDir.appendingPathComponent(
+                        String(format: "screenshot_%03d.png", i))
+                    // PNG 인코딩/디스크 쓰기와 usleep 블로킹 전송은 메인 밖에서 (중지 버튼 반응 유지).
+                    // 전면 모드의 앱 활성화(activate)는 AppKit 관례대로 메인에서 수행 -
+                    // 전면 모드는 어차피 다른 작업이 불가능해 메인 블로킹이 문제되지 않는다.
+                    if fgNow {
+                        try await Task.detached(priority: .userInitiated) {
+                            try savePNG(image, to: dest)
+                        }.value
+                        _ = try Self.sendConfiguredAction(
+                            foreground: true, actionType: actionNow, keyCode: keyCodeNow,
+                            clickPoint: clickNow, window: window, pid: pidNow)
+                    } else {
+                        try await Task.detached(priority: .userInitiated) {
+                            try savePNG(image, to: dest)
+                            _ = try Self.sendConfiguredAction(
+                                foreground: false, actionType: actionNow, keyCode: keyCodeNow,
+                                clickPoint: clickNow, window: window, pid: pidNow)
+                        }.value
+                    }
                     lastFrame = image
-                    progress = i
-                    RunState.shared.progress = i
-                    status = "진행 중 — 다른 작업을 하셔도 됩니다"
+                    runState.progress = i
+                    status = windowFallbackNote ?? "진행 중 — 다른 작업을 하셔도 됩니다"
                     if i < repsNow {
-                        try await Task.sleep(for: .seconds(Double.random(in: dMin...dMax)))
+                        do {
+                            try await Task.sleep(for: .seconds(Double.random(in: dMin...dMax)))
+                        } catch is CancellationError { break }  // 중지가 딜레이 중이어도 아래 정리를 수행
                     }
                 }
                 let removed = dedupNow ? pruneDuplicates(in: sessionDir) : 0
-                let kept = progress - removed
+                let kept = runState.progress - removed
                 let dedupNote = removed > 0 ? " (중복 \(removed)장 휴지통 이동, \(kept)장 유지)" : ""
                 if Task.isCancelled {
-                    status = "중지됨 — \(progress)장 저장\(dedupNote): \(sessionDir.path)"
+                    status = "중지됨 — \(runState.progress)장 저장\(dedupNote): \(sessionDir.path)"
                 } else {
-                    status = "완료 — \(progress)장 저장\(dedupNote): \(sessionDir.path)"
+                    status = "완료 — \(runState.progress)장 저장\(dedupNote): \(sessionDir.path)"
                     NSSound(named: "Glass")?.play()
-                    NSWorkspace.shared.open(sessionDir)
+                    if openFinderOnFinish { NSWorkspace.shared.open(sessionDir) }
                 }
             } catch is CancellationError {
-                status = "중지됨 (\(progress)장 저장됨)"
+                status = "중지됨 (\(runState.progress)장 저장됨)"
             } catch {
-                status = "오류 (\(progress)장까지 저장됨): \(error)"
+                let msg = "오류 (\(runState.progress)장까지 저장됨): \(error)"
+                status = msg
+                runState.error = msg
                 NSSound(named: "Basso")?.play()
             }
         }
+        macroTask = task
+        runState.stop = { task.cancel() }  // 뷰 전체가 아니라 task만 캡처
     }
 
     /// 세션 폴더에서 바이트 완전 동일한(로딩 중 등으로 같은) 프레임의 첫 장만 남기고
@@ -907,14 +1044,7 @@ struct ContentView: View {
         return total >= 60 ? "\(total / 60)분 \(total % 60)초" : "\(total)초"
     }
 
-    // MARK: - 중복 정리 시트
-
-    /// 각 그룹에서 첫 장(유지)을 뺀 나머지 = 삭제 가능한 중복들
-    private var deletableDups: [URL] { dupGroups.flatMap { $0.dropFirst() } }
-
-    private var allDupsSelected: Bool {
-        !deletableDups.isEmpty && dupSelected.count == deletableDups.count
-    }
+    // MARK: - 중복 정리 시트 (본체는 DuplicatesSheet.swift)
 
     /// 중복 정리가 스캔할 폴더: 이번 실행의 세션 폴더가 있으면 그걸, 없으면(앱 재실행 등)
     /// outputBase 아래 가장 최근(최고 번호) 세션 폴더, 그것도 없으면 base 자체.
@@ -931,189 +1061,39 @@ struct ContentView: View {
         return sessions.max { (Int($0.lastPathComponent) ?? 0) < (Int($1.lastPathComponent) ?? 0) }
             ?? base
     }
+}
 
-    private func openDuplicates(in dir: URL) {
-        scanDuplicates(dir)
-        showDuplicates = true
+// MARK: - "x,y[,w,h]" 문자열 직렬화 (@AppStorage 저장용 - 파싱/기록 지점 공용)
+
+extension CGRect {
+    init?(storageString s: String) {
+        let p = s.split(separator: ",").compactMap { Double($0) }
+        guard p.count == 4, p[2] > 0, p[3] > 0 else { return nil }
+        self.init(x: p[0], y: p[1], width: p[2], height: p[3])
     }
-
-    private func scanDuplicates(_ dir: URL) {
-        dupScanDir = dir
-        dupGroups = duplicateGroups(in: dir.path)
-        dupSelected = Set(deletableDups)  // 전체 선택이 기본 ON
-        dupStatus = ""
+    var storageString: String {
+        String(format: "%.0f,%.0f,%.0f,%.0f", minX, minY, width, height)
     }
+}
 
-    private func toggleSelectAll() {
-        dupSelected = allDupsSelected ? [] : Set(deletableDups)
+extension CGPoint {
+    init?(storageString s: String) {
+        let p = s.split(separator: ",").compactMap { Double($0) }
+        guard p.count == 2 else { return nil }
+        self.init(x: p[0], y: p[1])
     }
-
-    private func pickDuplicateFolder() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.allowsMultipleSelection = false
-        panel.directoryURL = dupScanDir ?? URL(fileURLWithPath: outputBase)
-        if panel.runModal() == .OK, let url = panel.url { scanDuplicates(url) }
-    }
-
-    /// 썸네일은 원본 풀해상도 대신 축소본을 메인 밖에서 디코드해 UI 잔렉을 피한다.
-    private func loadDupThumbs() async {
-        let urls = dupGroups.flatMap { $0 }.filter { dupThumbs[$0] == nil }
-        for url in urls {
-            let img = await Task.detached(priority: .userInitiated) {
-                fileThumbnail(at: url)
-            }.value
-            dupThumbs[url] = img
-        }
-    }
-
-    private func deleteDupSelected() {
-        let dir = dupScanDir
-        var trashed = 0
-        var failed = 0
-        for url in dupSelected {
-            do {
-                try FileManager.default.trashItem(at: url, resultingItemURL: nil)
-                trashed += 1
-            } catch {
-                failed += 1
-            }
-        }
-        if let dir { scanDuplicates(dir) }  // 재스캔해 목록 갱신 (dupStatus 초기화됨)
-        dupStatus =
-            "\(trashed)장 휴지통으로 이동 (복구 가능)" + (failed > 0 ? " · 실패 \(failed)장" : "")
-    }
-
-    private var duplicatesSheet: some View {
-        VStack(spacing: 0) {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("중복 캡처 정리").font(.headline)
-                    Text(dupScanDir?.path ?? "")
-                        .font(.caption).foregroundStyle(.secondary)
-                        .lineLimit(1).truncationMode(.middle)
-                }
-                Spacer()
-                Button { pickDuplicateFolder() } label: {
-                    Label("폴더 선택", systemImage: "folder")
-                }
-            }
-            .padding(12)
-            Divider()
-
-            if dupGroups.isEmpty {
-                ContentUnavailableView(
-                    "중복 없음", systemImage: "checkmark.circle",
-                    description: Text("이 폴더에는 바이트가 완전히 동일한 중복 캡처가 없습니다."))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                HStack(spacing: 10) {
-                    Button(allDupsSelected ? "전체 해제" : "전체 선택") { toggleSelectAll() }
-                    Text(
-                        "\(dupGroups.count)개 그룹 · 중복 \(deletableDups.count)장 · 선택 \(dupSelected.count)장"
-                    )
-                    .font(.caption).foregroundStyle(.secondary)
-                    Spacer()
-                }
-                .padding(.horizontal, 12).padding(.vertical, 8)
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 16) {
-                        ForEach(Array(dupGroups.enumerated()), id: \.offset) { idx, group in
-                            dupGroupRow(idx: idx, group: group)
-                        }
-                    }
-                    .padding(12)
-                }
-            }
-
-            Divider()
-            HStack {
-                if !dupStatus.isEmpty {
-                    Text(dupStatus).font(.caption).foregroundStyle(.secondary)
-                }
-                Spacer()
-                Button("닫기") { showDuplicates = false }
-                Button(role: .destructive) {
-                    deleteDupSelected()
-                } label: {
-                    Label("선택 \(dupSelected.count)장 삭제", systemImage: "trash")
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(dupSelected.isEmpty)
-            }
-            .padding(12)
-        }
-        .frame(width: 760, height: 640)
-        .task(id: dupScanDir) { await loadDupThumbs() }
-    }
-
-    private func dupGroupRow(idx: Int, group: [URL]) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("동일 그룹 #\(idx + 1) · \(group.count)장").font(.subheadline.bold())
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 10) {
-                    ForEach(Array(group.enumerated()), id: \.offset) { i, url in
-                        dupThumbCell(url: url, isKeep: i == 0)
-                    }
-                }
-            }
-        }
-    }
-
-    private func dupThumbCell(url: URL, isKeep: Bool) -> some View {
-        let selected = dupSelected.contains(url)
-        return VStack(spacing: 4) {
-            ZStack(alignment: .topLeading) {
-                Group {
-                    if let img = dupThumbs[url] {
-                        Image(img, scale: 1, label: Text(url.lastPathComponent))
-                            .resizable().scaledToFit()
-                    } else {
-                        RoundedRectangle(cornerRadius: 6).fill(.quaternary.opacity(0.5))
-                            .overlay(ProgressView().controlSize(.small))
-                    }
-                }
-                .frame(width: 150, height: 190)
-                .clipShape(RoundedRectangle(cornerRadius: 6))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6).stroke(
-                        isKeep
-                            ? Color.green
-                            : (selected ? Color.accentColor : Color.secondary.opacity(0.3)),
-                        lineWidth: (isKeep || selected) ? 2 : 1))
-                if isKeep {
-                    Text("유지")
-                        .font(.caption2.bold())
-                        .padding(.horizontal, 6).padding(.vertical, 2)
-                        .background(Capsule().fill(.green))
-                        .foregroundStyle(.white).padding(6)
-                } else {
-                    Image(systemName: selected ? "checkmark.circle.fill" : "circle")
-                        .font(.system(size: 20))
-                        .foregroundStyle(selected ? Color.accentColor : .secondary)
-                        .background(Circle().fill(.white).padding(3))
-                        .padding(6)
-                }
-            }
-            Text(url.lastPathComponent)
-                .font(.caption2.monospaced()).lineLimit(1).foregroundStyle(.secondary)
-        }
-        .contentShape(Rectangle())
-        .onTapGesture {
-            guard !isKeep else { return }  // 유지 이미지는 선택 대상 아님
-            if selected { dupSelected.remove(url) } else { dupSelected.insert(url) }
-        }
-    }
+    var storageString: String { String(format: "%.0f,%.0f", x, y) }
 }
 
 // MARK: - 플로팅 HUD (모든 Space·전체화면 위에 뜨는 실행 중 미니 패널)
 
-/// 실행 중 상태를 HUD와 공유하는 단일 소스
+/// 실행 중 상태의 단일 소스 - 메인 창(ContentView)과 플로팅 HUD가 함께 관찰한다
 final class RunState: ObservableObject {
     static let shared = RunState()
     @Published var progress = 0
     @Published var reps = 0
+    @Published var countdown: Int?
+    @Published var error: String?  // 설정되면 defer가 HUD를 닫지 않고 오류 상태로 남긴다
     var stop: (() -> Void)?
 }
 
@@ -1122,18 +1102,41 @@ struct HUDView: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: "camera.fill").font(.caption).foregroundStyle(.secondary)
-            ProgressView(value: Double(state.progress), total: Double(max(state.reps, 1)))
-                .frame(width: 110)
-            Text("\(state.progress)/\(state.reps)")
-                .font(.caption.monospacedDigit())
-            Button {
-                state.stop?()
-            } label: {
-                Image(systemName: "stop.fill").foregroundStyle(.red)
+            if let error = state.error {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.caption).foregroundStyle(.red)
+                Text(error)
+                    .font(.caption).lineLimit(1).truncationMode(.tail)
+                    .help(error)
+                Button {
+                    state.error = nil
+                    FloatingHUD.hide()
+                } label: {
+                    Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("오류 닫기")
+            } else {
+                Image(systemName: "camera.fill").font(.caption).foregroundStyle(.secondary)
+                if let s = state.countdown {
+                    Text("\(s)초 후 시작")
+                        .font(.caption.monospacedDigit())
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    ProgressView(value: Double(state.progress), total: Double(max(state.reps, 1)))
+                        .frame(width: 110)
+                    Text("\(state.progress)/\(state.reps)")
+                        .font(.caption.monospacedDigit())
+                }
+                Button {
+                    state.stop?()
+                } label: {
+                    Image(systemName: "stop.fill").foregroundStyle(.red)
+                }
+                .buttonStyle(.plain)
+                .help("매크로 중지")
+                .accessibilityLabel("매크로 중지")
             }
-            .buttonStyle(.plain)
-            .help("매크로 중지")
         }
         .padding(.horizontal, 12)
         .frame(height: 34)

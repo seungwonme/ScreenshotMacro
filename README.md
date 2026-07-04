@@ -1,5 +1,7 @@
 # Screenshot Macro for macOS
 
+A macOS screenshot automation tool written in Swift. It repeatedly captures a target app's window while sending key presses or mouse clicks to that app only - so the macro runs in the background and **you can keep working on other things**. Built on ScreenCaptureKit (captures windows even when covered) and `CGEventPostToPid` (input goes to the target app without stealing focus). Ships with a SwiftUI wizard GUI and a headless CLI. Docs below are in Korean.
+
 macOS 전용 스크린샷 자동화 도구 (Swift). 대상 앱의 윈도우를 반복 캡처하면서 키 입력 또는 마우스 클릭을 자동 실행합니다.
 
 핵심 특징: **매크로가 도는 동안 다른 작업을 할 수 있습니다.** ScreenCaptureKit으로 대상 창을 백그라운드(다른 창에 가려진 상태 포함)에서 캡처하고, `CGEventPostToPid`로 그 앱에만 키/클릭을 보내기 때문에 포커스를 뺏지 않습니다.
@@ -38,7 +40,7 @@ swift run smacro-gui
 1. **대상 창** - 모든 창이 실제 썸네일로 표시됩니다 (가려진 창, 다른 데스크톱 포함). 클릭하면 자동으로 미리보기 캡처.
 2. **캡처 영역** - 창 전체 또는 미리보기 위 드래그로 영역 지정 (선택 밖은 딤 처리, 숫자 필드 동기화).
 3. **매크로 설정** - 동작(키 캡처로 임의 키 / 미리보기 클릭으로 클릭 위치), 반복/시작 대기/랜덤 딜레이, 전면 모드 토글.
-4. **실행** - **테스트 1회**(캡처 1장 + 액션 1회)로 확인 후 시작. 진행 바 + 남은 시간 + 방금 저장된 컷 실시간 표시. 완료 시 알림음 + 폴더 자동 열기.
+4. **실행** - **테스트 1회**(캡처 1장 + 액션 1회)로 확인 후 시작. 진행 바 + 남은 시간 + 방금 저장된 컷 실시간 표시 + 모든 데스크톱 위에 뜨는 플로팅 HUD. 완료 시 알림음이 울리고, '완료되면 결과 폴더 열기' 토글(기본 ON)에 따라 폴더가 열립니다.
 
 상단 스텝 바에 단계별 완료가 초록 체크로 표시되고, 설정은 자동 저장됩니다(UserDefaults).
 
@@ -75,8 +77,10 @@ swift run smacro-proto find-duplicates [--delete] [-f] # 중복 캡처 탐지 (-
 ScreenshotMacro/
 ├── Package.swift
 ├── Sources/
-│   ├── SMacroCore/Core.swift     # 공유 로직: 캡처, 키/클릭 전송, 권한, 세션 디렉토리, 해시
-│   ├── smacro-gui/App.swift      # SwiftUI 위저드 GUI
+│   ├── SMacroCore/Core.swift     # 공유 로직: 창 필터, 캡처, 키/클릭 전송, 권한, 세션 디렉토리, 해시
+│   ├── smacro-gui/
+│   │   ├── App.swift             # SwiftUI 위저드 GUI
+│   │   └── DuplicatesSheet.swift # 중복 캡처 정리 시트
 │   └── smacro-proto/SMacro.swift # CLI (list/capture/send-key/macro/유틸리티)
 ├── scripts/
 │   └── validate-swift-proto.sh   # 엔드투엔드 검증 (백그라운드 캡처·키 전송 자동 판정)
@@ -89,3 +93,7 @@ ScreenshotMacro/
 - 백그라운드 클릭은 좌표의 AX 요소에 AXPress를 먼저 시도하고(Electron은 AX 트리 강제 활성화), 실패 시 CGEvent로 폴백합니다. 그래도 반응이 없는 앱은 전면 모드를 사용하세요
 - 권한은 프로세스 계보 기준입니다. `swift run`으로 실행하면 터미널 앱의 화면 기록/손쉬운 사용 권한을 상속합니다
 - 구 Python(PyQt6) 버전은 git 히스토리에서 확인할 수 있습니다 (2026-07 Swift 전환)
+
+## License
+
+[MIT](LICENSE)
