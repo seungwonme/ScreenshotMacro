@@ -120,7 +120,7 @@ func runClean(dir: String, force: Bool) throws {
 func runFindDuplicates(dir: String, delete: Bool, force: Bool) throws {
     let files = try collectPNGs(in: dir)
     guard !files.isEmpty else { return print("캡처 없음: \(dir)") }
-    let dupGroups = duplicateGroups(in: dir)
+    let dupGroups = duplicateGroups(in: files)
     guard !dupGroups.isEmpty else {
         return print("중복 없음 (\(files.count)장 검사, 바이트 완전 동일 기준)")
     }

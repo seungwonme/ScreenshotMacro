@@ -291,10 +291,9 @@ public func collectPNGs(in dir: String) throws -> [URL] {
     return files.sorted { $0.path < $1.path }
 }
 
-/// PNG들을 파일 바이트 SHA256로 그룹핑. 2장 이상 동일한 그룹만 반환하며,
+/// PNG 목록을 파일 바이트 SHA256로 그룹핑. 2장 이상 동일한 그룹만 반환하며,
 /// 각 그룹은 경로순, 그룹들도 첫 원소 경로순으로 정렬한다. CLI/GUI 공용.
-public func duplicateGroups(in dir: String) -> [[URL]] {
-    let files = (try? collectPNGs(in: dir)) ?? []
+public func duplicateGroups(in files: [URL]) -> [[URL]] {
     var byHash: [String: [URL]] = [:]
     for f in files {
         guard let h = fileHash(at: f) else { continue }
@@ -304,6 +303,11 @@ public func duplicateGroups(in dir: String) -> [[URL]] {
         .filter { $0.count > 1 }
         .map { $0.sorted { $0.path < $1.path } }
         .sorted { $0[0].path < $1[0].path }
+}
+
+/// dir(하위 폴더 포함) 안 PNG를 바이트 SHA256로 그룹핑.
+public func duplicateGroups(in dir: String) -> [[URL]] {
+    duplicateGroups(in: (try? collectPNGs(in: dir)) ?? [])
 }
 
 /// 파일에서 최대 변 길이 maxPixel의 축소 썸네일 생성 (원본 풀해상도 디코드를 피해 메모리 절약).
