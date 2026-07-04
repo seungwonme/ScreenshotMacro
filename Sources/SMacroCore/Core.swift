@@ -350,6 +350,28 @@ public func fileThumbnail(at url: URL, maxPixel: Int = 400) -> CGImage? {
     return CGImageSourceCreateThumbnailAtIndex(src, 0, opts as CFDictionary)
 }
 
+// MARK: - "x,y[,w,h]" 문자열 직렬화 (GUI @AppStorage 저장용 - 파싱/기록 지점 공용)
+
+extension CGRect {
+    public init?(storageString s: String) {
+        let p = s.split(separator: ",").compactMap { Double($0) }
+        guard p.count == 4, p[2] > 0, p[3] > 0 else { return nil }
+        self.init(x: p[0], y: p[1], width: p[2], height: p[3])
+    }
+    public var storageString: String {
+        String(format: "%.0f,%.0f,%.0f,%.0f", minX, minY, width, height)
+    }
+}
+
+extension CGPoint {
+    public init?(storageString s: String) {
+        let p = s.split(separator: ",").compactMap { Double($0) }
+        guard p.count == 2 else { return nil }
+        self.init(x: p[0], y: p[1])
+    }
+    public var storageString: String { String(format: "%.0f,%.0f", x, y) }
+}
+
 // Python 버전의 screenshots/01, 02, ... 세션 디렉토리 규칙과 동일
 public func nextSessionDir(base: String) throws -> URL {
     let fm = FileManager.default

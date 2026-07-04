@@ -1,0 +1,16 @@
+#!/bin/sh
+# pre-push: 단위 테스트는 항상, E2E는 화면 기록/손쉬운 사용 권한이 있는 터미널에서만.
+# 설치(클론 후 1회): git config core.hooksPath .githooks
+set -e
+cd "$(git rev-parse --show-toplevel)"
+
+echo "pre-push: swift test"
+swift test
+
+# 권한 프로브: 권한 없는 환경(CI, 백그라운드 에이전트)에서는 E2E를 조용히 건너뛴다
+if swift run smacro-proto list >/dev/null 2>&1; then
+    echo "pre-push: E2E 검증 (TextEdit 자동 판정)"
+    scripts/validate-swift-proto.sh
+else
+    echo "pre-push: 화면 기록 권한 없음 - E2E 건너뜀 (swift test만 검증)"
+fi

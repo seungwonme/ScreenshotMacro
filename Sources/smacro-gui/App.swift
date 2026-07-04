@@ -1063,28 +1063,6 @@ struct ContentView: View {
     }
 }
 
-// MARK: - "x,y[,w,h]" 문자열 직렬화 (@AppStorage 저장용 - 파싱/기록 지점 공용)
-
-extension CGRect {
-    init?(storageString s: String) {
-        let p = s.split(separator: ",").compactMap { Double($0) }
-        guard p.count == 4, p[2] > 0, p[3] > 0 else { return nil }
-        self.init(x: p[0], y: p[1], width: p[2], height: p[3])
-    }
-    var storageString: String {
-        String(format: "%.0f,%.0f,%.0f,%.0f", minX, minY, width, height)
-    }
-}
-
-extension CGPoint {
-    init?(storageString s: String) {
-        let p = s.split(separator: ",").compactMap { Double($0) }
-        guard p.count == 2 else { return nil }
-        self.init(x: p[0], y: p[1])
-    }
-    var storageString: String { String(format: "%.0f,%.0f", x, y) }
-}
-
 // MARK: - 플로팅 HUD (모든 Space·전체화면 위에 뜨는 실행 중 미니 패널)
 
 /// 실행 중 상태의 단일 소스 - 메인 창(ContentView)과 플로팅 HUD가 함께 관찰한다

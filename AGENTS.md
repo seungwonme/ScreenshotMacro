@@ -28,10 +28,13 @@ SwiftPM 패키지, 타깃 3개:
 
 ```bash
 swift build                       # 전체 빌드 (GUI + CLI)
+swift test                        # 단위 테스트 (권한 불필요 - CI/pre-push 훅에서도 실행)
 swift run smacro-gui              # GUI 실행
 swift run smacro-proto <command>  # CLI
 scripts/validate-swift-proto.sh   # E2E 검증 (권한 있는 터미널에서, TextEdit로 자동 판정)
 ```
+
+테스트 자동 실행: `.githooks/pre-push`가 push마다 `swift test`를 돌리고, 화면 기록 권한이 있는 터미널이면 E2E까지 실행한다(권한 없으면 자동 건너뜀). 새 클론은 `git config core.hooksPath .githooks` 1회 필요. 사용자에게 검증을 시키지 말 것 - 권한 없는 세션은 `swift build`+`swift test`까지 직접 돌리고, E2E는 훅이 처리한다.
 
 ## Change Log
 
