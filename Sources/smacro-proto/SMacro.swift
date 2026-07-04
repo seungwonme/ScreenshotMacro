@@ -4,7 +4,6 @@ import AppKit
 import CoreGraphics
 import Foundation
 import SMacroCore
-import ScreenCaptureKit
 
 // MARK: - Arg parsing
 
@@ -175,10 +174,7 @@ struct SMacro {
         switch args.first {
         case "list":
             try checkScreenRecording()
-            let content = try await SCShareableContent.excludingDesktopWindows(
-                false, onScreenWindowsOnly: true)
-            for window in content.windows
-            where window.frame.width > 50 && window.frame.height > 50 {
+            for window in try await captureTargets() {
                 let app = window.owningApplication
                 print(
                     "pid=\(app?.processID ?? 0)\t\(app?.applicationName ?? "?")\t\(window.title ?? "")"
@@ -207,7 +203,8 @@ struct SMacro {
             let area = try parseArea(args)
             try checkScreenRecording()
             try checkAccessibility()
-            let reps = Int(flagValue(args, "--reps") ?? "10") ?? 10
+            // 0 이하는 1...reps 범위 크래시 -> 최소 1로 클램프
+            let reps = max(1, Int(flagValue(args, "--reps") ?? "10") ?? 10)
             let key = flagValue(args, "--key") ?? "right"
             let wait = Double(flagValue(args, "--wait") ?? "3") ?? 3
             let delayMin = Double(flagValue(args, "--delay-min") ?? "1") ?? 1

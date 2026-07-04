@@ -32,12 +32,41 @@ public func initWindowServerConnection() {
 
 // MARK: - Window lookup / capture
 
-public func frontWindow(ofPid pid: pid_t) async throws -> SCWindow {
+/// 이보다 작은 창은 캡처 대상에서 제외 (툴팁·팝업류)
+public let minCaptureSize: CGFloat = 50
+
+/// 캡처 대상 창 목록 - '어떤 창이 대상인가' 정책의 단일 지점 (CLI list / GUI 그리드 / frontWindow 공용).
+/// dockAppsOnly: 도크에 뜨는 일반 앱 창만 (windowLayer 0, activationPolicy .regular).
+public func captureTargets(dockAppsOnly: Bool = false, excludePid: pid_t? = nil) async throws
+    -> [SCWindow]
+{
     let content = try await SCShareableContent.excludingDesktopWindows(
         false, onScreenWindowsOnly: true)
-    let windows = content.windows.filter {
-        $0.owningApplication?.processID == pid && $0.isOnScreen
-            && $0.frame.width > 50 && $0.frame.height > 50
+    // 창마다 NSRunningApplication을 새로 만들지 않게 도크 앱 pid를 한 번만 수집
+    let regularPids: Set<pid_t> =
+        dockAppsOnly
+        ? Set(
+            NSWorkspace.shared.runningApplications
+                .filter { $0.activationPolicy == .regular }
+                .map(\.processIdentifier))
+        : []
+    return content.windows.filter { w in
+        guard let app = w.owningApplication,
+            w.frame.width > minCaptureSize, w.frame.height > minCaptureSize,
+            app.processID != (excludePid ?? -1)
+        else { return false }
+        if dockAppsOnly {
+            guard w.windowLayer == 0, !app.applicationName.isEmpty,
+                regularPids.contains(app.processID)
+            else { return false }
+        }
+        return true
+    }
+}
+
+public func frontWindow(ofPid pid: pid_t) async throws -> SCWindow {
+    let windows = try await captureTargets().filter {
+        $0.owningApplication?.processID == pid
     }
     guard let window = windows.max(by: {
         $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height
@@ -62,7 +91,7 @@ public func captureImage(window: SCWindow, area: CGRect? = nil) async throws -> 
         x: area.origin.x * scale, y: area.origin.y * scale,
         width: area.width * scale, height: area.height * scale)
     guard let cropped = image.cropping(to: pixelRect) else {
-        throw die("--area가 창 범위를 벗어납니다 (창 크기: \(Int(window.frame.width))x\(Int(window.frame.height))pt)")
+        throw die("지정한 캡처 영역이 창 범위를 벗어납니다 (창 크기: \(Int(window.frame.width))x\(Int(window.frame.height))pt)")
     }
     return cropped
 }
@@ -122,6 +151,18 @@ public func sendClick(at windowPoint: CGPoint, window: SCWindow, toPid pid: pid_
 
     if axPress(at: global, pid: pid) { return "AXPress" }
 
+    let ev = try makeClickEvents(at: global)
+    ev.moved.postToPid(pid)
+    usleep(20_000)
+    ev.down.postToPid(pid)
+    usleep(20_000)
+    ev.up.postToPid(pid)
+    usleep(50_000)  // 키와 동일: 종료 직전 이벤트 flush 유실 방지
+    return "CGEvent"
+}
+
+/// moved/down/up 좌클릭 이벤트 3종 생성 (백그라운드 postToPid / 전면 post 공용)
+private func makeClickEvents(at global: CGPoint) throws -> (moved: CGEvent, down: CGEvent, up: CGEvent) {
     let source = CGEventSource(stateID: .hidSystemState)
     guard
         let moved = CGEvent(
@@ -136,13 +177,7 @@ public func sendClick(at windowPoint: CGPoint, window: SCWindow, toPid pid: pid_
     else { throw die("CGEvent 생성 실패") }
     down.setIntegerValueField(.mouseEventClickState, value: 1)
     up.setIntegerValueField(.mouseEventClickState, value: 1)
-    moved.postToPid(pid)
-    usleep(20_000)
-    down.postToPid(pid)
-    usleep(20_000)
-    up.postToPid(pid)
-    usleep(50_000)  // 키와 동일: 종료 직전 이벤트 flush 유실 방지
-    return "CGEvent"
+    return (moved, down, up)
 }
 
 /// 화면 좌표에 있는 대상 앱의 AX 요소를 찾아 AXPress. 성공 여부 반환.
@@ -206,25 +241,12 @@ public func sendClickGlobal(at windowPoint: CGPoint, window: SCWindow) throws {
     let global = CGPoint(
         x: window.frame.origin.x + windowPoint.x,
         y: window.frame.origin.y + windowPoint.y)
-    let source = CGEventSource(stateID: .hidSystemState)
-    guard
-        let moved = CGEvent(
-            mouseEventSource: source, mouseType: .mouseMoved,
-            mouseCursorPosition: global, mouseButton: .left),
-        let down = CGEvent(
-            mouseEventSource: source, mouseType: .leftMouseDown,
-            mouseCursorPosition: global, mouseButton: .left),
-        let up = CGEvent(
-            mouseEventSource: source, mouseType: .leftMouseUp,
-            mouseCursorPosition: global, mouseButton: .left)
-    else { throw die("CGEvent 생성 실패") }
-    down.setIntegerValueField(.mouseEventClickState, value: 1)
-    up.setIntegerValueField(.mouseEventClickState, value: 1)
-    moved.post(tap: .cghidEventTap)
+    let ev = try makeClickEvents(at: global)
+    ev.moved.post(tap: .cghidEventTap)
     usleep(30_000)
-    down.post(tap: .cghidEventTap)
+    ev.down.post(tap: .cghidEventTap)
     usleep(30_000)
-    up.post(tap: .cghidEventTap)
+    ev.up.post(tap: .cghidEventTap)
     usleep(30_000)
 }
 
@@ -237,15 +259,27 @@ public func ensureFrontmost(pid: pid_t) {
 
 // MARK: - Permissions
 
+/// 화면 기록 권한 보유 여부. requestIfNeeded: 미보유 시 macOS 시스템 프롬프트 요청(최초 1회만 뜸).
+public func screenRecordingGranted(requestIfNeeded: Bool = false) -> Bool {
+    if CGPreflightScreenCaptureAccess() { return true }
+    if requestIfNeeded { CGRequestScreenCaptureAccess() }
+    return false
+}
+
 public func checkScreenRecording() throws {
-    if !CGPreflightScreenCaptureAccess() {
-        CGRequestScreenCaptureAccess()
+    if !screenRecordingGranted(requestIfNeeded: true) {
         throw die("화면 기록 권한이 없습니다. 시스템 설정 > 개인정보 보호 및 보안 > 화면 기록에서 이 앱을 허용하세요.")
     }
 }
 
-public func checkAccessibility() throws {
-    if !AXIsProcessTrusted() {
+/// promptUser: 권한이 없으면 macOS 시스템 프롬프트를 띄우고 설정 목록에 앱을 등록 (GUI용)
+public func checkAccessibility(promptUser: Bool = false) throws {
+    let trusted =
+        promptUser
+        ? AXIsProcessTrustedWithOptions(
+            [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary)
+        : AXIsProcessTrusted()
+    if !trusted {
         throw die("손쉬운 사용 권한이 없습니다. 시스템 설정 > 개인정보 보호 및 보안 > 손쉬운 사용에서 이 앱을 허용하세요.")
     }
 }
@@ -305,11 +339,6 @@ public func duplicateGroups(in files: [URL]) -> [[URL]] {
         .sorted { $0[0].path < $1[0].path }
 }
 
-/// dir(하위 폴더 포함) 안 PNG를 바이트 SHA256로 그룹핑.
-public func duplicateGroups(in dir: String) -> [[URL]] {
-    duplicateGroups(in: (try? collectPNGs(in: dir)) ?? [])
-}
-
 /// 파일에서 최대 변 길이 maxPixel의 축소 썸네일 생성 (원본 풀해상도 디코드를 피해 메모리 절약).
 public func fileThumbnail(at url: URL, maxPixel: Int = 400) -> CGImage? {
     guard let src = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
@@ -319,6 +348,28 @@ public func fileThumbnail(at url: URL, maxPixel: Int = 400) -> CGImage? {
         kCGImageSourceCreateThumbnailWithTransform: true,
     ]
     return CGImageSourceCreateThumbnailAtIndex(src, 0, opts as CFDictionary)
+}
+
+// MARK: - "x,y[,w,h]" 문자열 직렬화 (GUI @AppStorage 저장용 - 파싱/기록 지점 공용)
+
+extension CGRect {
+    public init?(storageString s: String) {
+        let p = s.split(separator: ",").compactMap { Double($0) }
+        guard p.count == 4, p[2] > 0, p[3] > 0 else { return nil }
+        self.init(x: p[0], y: p[1], width: p[2], height: p[3])
+    }
+    public var storageString: String {
+        String(format: "%.0f,%.0f,%.0f,%.0f", minX, minY, width, height)
+    }
+}
+
+extension CGPoint {
+    public init?(storageString s: String) {
+        let p = s.split(separator: ",").compactMap { Double($0) }
+        guard p.count == 2 else { return nil }
+        self.init(x: p[0], y: p[1])
+    }
+    public var storageString: String { String(format: "%.0f,%.0f", x, y) }
 }
 
 // Python 버전의 screenshots/01, 02, ... 세션 디렉토리 규칙과 동일
