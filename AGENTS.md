@@ -25,6 +25,8 @@ SwiftPM 패키지, 타깃 3개:
 - **postToPid 이벤트 유실**: post 직후 프로세스 종료 시 flush 전에 유실. down/up 사이 20ms + 종료 전 50ms 대기.
 - **백그라운드 클릭 무시**: 비활성 창 컨트롤은 합성 첫 클릭을 무시(acceptsFirstMouse). AXPress 경로가 해법. Electron(Discord 등)은 AX 트리가 기본 비활성 -> `AXManualAccessibility` 켜야 요소가 잡힘. 그래도 안 되면 전면 모드.
 - **TCC 권한은 프로세스 계보 기준**: 터미널에 화면 기록/손쉬운 사용을 부여하면 `swift run` 자식이 상속. 백그라운드 에이전트(claude 등)에는 별도 부여 필요.
+- **macOS 26 TextEdit AppleScript**: `length of text of document 1`은 -1728로 실패한다(2026-07-03 실측). `count characters of document 1`을 쓴다.
+- **UI 자동화는 Swift 접근성이 먼저**: 포커스 없는 캡처와 `postToPid` 키 전송은 대상 앱이 가려져 있거나 사용자가 다른 앱에 타이핑 중이어도 서로 간섭하지 않는다. 전면 포커스가 필요할 때만 `osascript`를 쓴다.
 
 ## Dev Commands
 
